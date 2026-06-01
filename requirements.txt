@@ -1,8 +1,0 @@
-streamlit
-qrcode[pil]
-pillow
-streamlit-webrtc
-opencv-python-headless
-pyzbar
-av
-numpy
