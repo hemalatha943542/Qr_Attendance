@@ -2,4 +2,3 @@ streamlit
 Pillow
 qrcode[pil]
 pandas
-streamlit-js-eval
