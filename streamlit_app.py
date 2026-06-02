@@ -6,16 +6,121 @@ import io
 from datetime import date
 import time
 
-st.set_page_config(page_title="QR Attendance System", page_icon="📋", layout="wide")
+st.set_page_config(page_title="Auxilium College - QR Attendance", page_icon="🎓", layout="wide")
 
 st.markdown("""
 <style>
+/* ===== AUXILIUM COLLEGE - BLUE & GOLD THEME ===== */
+
+/* Main background */
+.stApp {
+    background: linear-gradient(135deg, #0a1628 0%, #0d1f3c 50%, #0a1628 100%);
+}
+
+/* Sidebar */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0d1f3c 0%, #0a1628 100%) !important;
+    border-right: 2px solid #c9a227;
+}
+
+/* Sidebar title */
+[data-testid="stSidebar"] h1 {
+    color: #c9a227 !important;
+    text-align: center;
+}
+
+/* Main title */
+h1 { color: #c9a227 !important; }
+h2 { color: #e8c547 !important; border-bottom: 2px solid #c9a227; padding-bottom: 8px; }
+h3 { color: #c9a227 !important; }
+
+/* Menu buttons */
 .menu-btn {
     display: block; width: 100%; padding: 10px 15px; margin: 5px 0;
-    background: #2d2d2d; color: white !important; text-decoration: none !important;
-    border-radius: 8px; font-size: 15px; cursor: pointer; border: 1px solid #444;
+    background: linear-gradient(90deg, #0d2a5e, #0a1f4a);
+    color: #f0d060 !important; text-decoration: none !important;
+    border-radius: 8px; font-size: 15px; cursor: pointer;
+    border: 1px solid #c9a227;
+    transition: all 0.3s;
 }
-.menu-btn:hover { background: #7c3aed; }
+.menu-btn:hover {
+    background: linear-gradient(90deg, #c9a227, #e8c547) !important;
+    color: #0a1628 !important;
+}
+
+/* Buttons */
+.stButton > button {
+    background: linear-gradient(90deg, #1a3a6b, #0d2a5e) !important;
+    color: #f0d060 !important;
+    border: 1px solid #c9a227 !important;
+    border-radius: 8px !important;
+    font-weight: bold !important;
+}
+.stButton > button:hover {
+    background: linear-gradient(90deg, #c9a227, #e8c547) !important;
+    color: #0a1628 !important;
+}
+
+/* Primary button */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(90deg, #c9a227, #e8c547) !important;
+    color: #0a1628 !important;
+    border: none !important;
+}
+
+/* Input boxes */
+.stTextInput > div > div > input {
+    background: #0d1f3c !important;
+    color: #f0d060 !important;
+    border: 1px solid #c9a227 !important;
+    border-radius: 8px !important;
+}
+.stTextInput > label {
+    color: #c9a227 !important;
+    font-weight: bold !important;
+}
+
+/* Info/Success/Error boxes */
+.stInfo { background: #0d2a5e !important; border-left: 4px solid #c9a227 !important; color: #f0d060 !important; }
+.stSuccess { background: #0d3320 !important; border-left: 4px solid #4ade80 !important; }
+.stError { background: #3d0a0a !important; border-left: 4px solid #f87171 !important; }
+.stWarning { background: #2d1a00 !important; border-left: 4px solid #c9a227 !important; }
+
+/* Metrics */
+[data-testid="stMetric"] {
+    background: linear-gradient(135deg, #0d1f3c, #1a3a6b) !important;
+    border: 1px solid #c9a227 !important;
+    border-radius: 10px !important;
+    padding: 10px !important;
+}
+[data-testid="stMetricLabel"] { color: #c9a227 !important; }
+[data-testid="stMetricValue"] { color: #f0d060 !important; }
+
+/* Divider */
+hr { border-color: #c9a227 !important; opacity: 0.4; }
+
+/* General text */
+p, div, span, label { color: #e0d0a0 !important; }
+
+/* College header banner */
+.college-header {
+    background: linear-gradient(90deg, #0d1f3c, #1a3a6b, #0d1f3c);
+    border: 2px solid #c9a227;
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+    margin-bottom: 20px;
+}
+.college-header h1 {
+    color: #c9a227 !important;
+    font-size: 28px !important;
+    margin: 0 !important;
+}
+.college-header p {
+    color: #f0d060 !important;
+    margin: 4px 0 0 0 !important;
+    font-size: 14px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -132,8 +237,9 @@ if st.session_state.pending_roll and st.session_state.pending_roll != st.session
 
 with st.sidebar:
     try: st.image("static/auxlogo.jpg", width=120)
-    except: st.write("📋")
-    st.title("QR Attendance")
+    except: st.markdown('<p style="text-align:center;font-size:40px;">🎓</p>', unsafe_allow_html=True)
+    st.markdown('<h2 style="text-align:center;color:#c9a227!important;">Auxilium College</h2>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center;color:#f0d060;font-size:12px;">QR Attendance System</p>', unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("""
     <a class="menu-btn" href="#add-student">➕ Add Student</a>
@@ -143,9 +249,14 @@ with st.sidebar:
     <a class="menu-btn" href="#attendance-report">📊 Attendance Report</a>
     """, unsafe_allow_html=True)
     st.markdown("---")
-    st.markdown(f"📅 Today: **{date.today()}**")
+    st.markdown(f'<p style="color:#c9a227;">📅 Today: <b>{date.today()}</b></p>', unsafe_allow_html=True)
 
-st.title("📋 QR Attendance System")
+st.markdown("""
+<div class="college-header">
+    <h1>🎓 Auxilium College of Arts & Science</h1>
+    <p>📋 QR Attendance Management System | Vellore</p>
+</div>
+""", unsafe_allow_html=True)
 st.markdown("---")
 
 # ADD STUDENT
@@ -191,7 +302,7 @@ st.markdown("---")
 # QR SCANNER
 st.markdown('<h2 id="qr-scanner">📷 QR Scanner</h2>', unsafe_allow_html=True)
 
-SCANNER_PASSWORD = "hemalatha"
+SCANNER_PASSWORD = "auxilium2024"
 
 if not st.session_state.scanner_unlocked:
     st.warning("🔒 Scanner பயன்படுத்த Teacher Password போடுங்கள்!")
@@ -243,31 +354,31 @@ else:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:#0f0f0f; font-family:Arial,sans-serif; }
+body { background:#0a1628; font-family:Arial,sans-serif; }
 #container { display:flex; flex-direction:column; align-items:center; padding:16px; gap:12px; }
 #video-wrap {
   position:relative; width:100%; max-width:380px;
   border-radius:16px; overflow:hidden;
-  border:2px solid #7c3aed;
-  box-shadow:0 0 20px rgba(124,58,237,0.4);
+  border:2px solid #c9a227;
+  box-shadow:0 0 20px rgba(201,162,39,0.5);
 }
 video { width:100%; display:block; border-radius:14px; }
 #overlay {
   position:absolute; top:50%; left:50%;
   transform:translate(-50%,-50%);
   width:180px; height:180px;
-  border:3px solid #7c3aed; border-radius:12px;
+  border:3px solid #c9a227; border-radius:12px;
   box-shadow:0 0 0 9999px rgba(0,0,0,0.35);
   pointer-events:none;
 }
-.corner { position:absolute; width:22px; height:22px; border-color:#a78bfa; border-style:solid; }
+.corner { position:absolute; width:22px; height:22px; border-color:#c9a227; border-style:solid; }
 .tl { top:-2px;left:-2px; border-width:3px 0 0 3px; border-radius:4px 0 0 0; }
 .tr { top:-2px;right:-2px; border-width:3px 3px 0 0; border-radius:0 4px 0 0; }
 .bl { bottom:-2px;left:-2px; border-width:0 0 3px 3px; border-radius:0 0 0 4px; }
 .br { bottom:-2px;right:-2px; border-width:0 3px 3px 0; border-radius:0 0 4px 0; }
 #scan-line {
   position:absolute; left:4px; right:4px; height:2px;
-  background:linear-gradient(90deg,transparent,#a78bfa,transparent);
+  background:linear-gradient(90deg,transparent,#e8c547,transparent);
   animation:scan 2s linear infinite; top:10%;
 }
 @keyframes scan { 0%{top:10%} 50%{top:85%} 100%{top:10%} }
@@ -278,11 +389,11 @@ video { width:100%; display:block; border-radius:14px; }
 }
 #status.success { background:#052e16; color:#4ade80; border-color:#166534; }
 #status.error   { background:#2d0a0a; color:#f87171; border-color:#7f1d1d; }
-#status.info    { background:#0c1a2e; color:#60a5fa; border-color:#1e3a5f; }
+#status.info    { background:#0d1f3c; color:#f0d060; border-color:#c9a227; }
 canvas { display:none; }
 #start-btn {
   padding:12px 32px; font-size:15px; font-weight:bold;
-  background:#7c3aed; color:white; border:none;
+  background:linear-gradient(90deg,#c9a227,#e8c547); color:#0a1628; border:none; font-weight:bold;
   border-radius:10px; cursor:pointer; width:100%; max-width:380px;
 }
 #start-btn:disabled { background:#444; cursor:not-allowed; }
