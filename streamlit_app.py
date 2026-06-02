@@ -302,7 +302,7 @@ st.markdown("---")
 # QR SCANNER
 st.markdown('<h2 id="qr-scanner">📷 QR Scanner</h2>', unsafe_allow_html=True)
 
-SCANNER_PASSWORD = "auxilium2024"
+SCANNER_PASSWORD = "hemalatha"
 
 if not st.session_state.scanner_unlocked:
     st.warning("🔒 Scanner பயன்படுத்த Teacher Password போடுங்கள்!")
