@@ -4,6 +4,7 @@ import sqlite3
 import qrcode
 import io
 from datetime import date
+import time
 
 st.set_page_config(page_title="QR Attendance System", page_icon="📋", layout="wide")
 
@@ -113,18 +114,18 @@ def generate_qr(roll):
 
 init_db()
 
-for key in ['last_scanned','scan_result_name','scan_result_status']:
+for key in ['last_scanned','scan_result_name','scan_result_status','pending_roll']:
     if key not in st.session_state:
         st.session_state[key] = ""
 
-# ✅ Query param check — QR scan redirect இங்கே catch ஆகும்
-query_roll = st.query_params.get("roll", "")
-if query_roll and query_roll != st.session_state.last_scanned:
-    st.session_state.last_scanned = query_roll
-    name_found, status_val = mark_present_by_roll(query_roll)
-    st.session_state.scan_result_name = name_found or query_roll
+# ✅ STEP 1: pending_roll இருந்தா — DB mark பண்ணு
+if st.session_state.pending_roll and st.session_state.pending_roll != st.session_state.last_scanned:
+    roll_to_mark = st.session_state.pending_roll
+    st.session_state.last_scanned = roll_to_mark
+    st.session_state.pending_roll = ""
+    name_found, status_val = mark_present_by_roll(roll_to_mark)
+    st.session_state.scan_result_name = name_found or roll_to_mark
     st.session_state.scan_result_status = status_val
-    st.query_params.clear()
     st.rerun()
 
 with st.sidebar:
@@ -192,63 +193,73 @@ st.info("📱 QR code scan பண்ணினா automatically Present mark ஆ�
 if st.session_state.scan_result_name:
     n = st.session_state.scan_result_name
     s = st.session_state.scan_result_status
-    if s == "updated":  st.success(f"✅ {n} — Absent → Present Marked!")
-    elif s == "already": st.info(f"ℹ️ {n} — Already Present!")
-    elif s == "new":    st.success(f"✅ {n} — Present Marked!")
-    elif s == "notfound": st.error(f"❌ Roll '{n}' not found in database!")
+    if s == "updated":    st.success(f"✅ {n} — Absent → Present Marked!")
+    elif s == "already":  st.info(f"ℹ️ {n} — Already Present!")
+    elif s == "new":      st.success(f"✅ {n} — Present Marked! 🎉")
+    elif s == "notfound": st.error(f"❌ '{n}' — Student not found!")
 
-# ✅ THE KEY TRICK: Scanner HTML with app URL embedded
-app_url = "https://qr-attendancer.streamlit.app"
+# ✅ HIDDEN TEXT INPUT — JS இதை fill பண்ணும், Streamlit read பண்ணும்
+roll_input = st.text_input(
+    "scanned_roll_hidden",
+    value="",
+    key="roll_box",
+    label_visibility="hidden"
+)
 
-scanner_html = f"""<!DOCTYPE html>
+# JS இந்த input-ஐ fill பண்ணி Enter press பண்ணும்
+if roll_input and roll_input.strip() != st.session_state.last_scanned:
+    st.session_state.pending_roll = roll_input.strip()
+    st.rerun()
+
+scanner_html = """<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-* {{ margin:0; padding:0; box-sizing:border-box; }}
-body {{ background:#0f0f0f; font-family:Arial,sans-serif; }}
-#container {{ display:flex; flex-direction:column; align-items:center; padding:16px; gap:12px; }}
-#video-wrap {{
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0f0f0f; font-family:Arial,sans-serif; }
+#container { display:flex; flex-direction:column; align-items:center; padding:16px; gap:12px; }
+#video-wrap {
   position:relative; width:100%; max-width:380px;
   border-radius:16px; overflow:hidden;
   border:2px solid #7c3aed;
   box-shadow:0 0 20px rgba(124,58,237,0.4);
-}}
-video {{ width:100%; display:block; border-radius:14px; }}
-#overlay {{
+}
+video { width:100%; display:block; border-radius:14px; }
+#overlay {
   position:absolute; top:50%; left:50%;
   transform:translate(-50%,-50%);
   width:180px; height:180px;
   border:3px solid #7c3aed; border-radius:12px;
   box-shadow:0 0 0 9999px rgba(0,0,0,0.35);
   pointer-events:none;
-}}
-.corner {{ position:absolute; width:22px; height:22px; border-color:#a78bfa; border-style:solid; }}
-.tl {{ top:-2px;left:-2px; border-width:3px 0 0 3px; border-radius:4px 0 0 0; }}
-.tr {{ top:-2px;right:-2px; border-width:3px 3px 0 0; border-radius:0 4px 0 0; }}
-.bl {{ bottom:-2px;left:-2px; border-width:0 0 3px 3px; border-radius:0 0 0 4px; }}
-.br {{ bottom:-2px;right:-2px; border-width:0 3px 3px 0; border-radius:0 0 4px 0; }}
-#scan-line {{
+}
+.corner { position:absolute; width:22px; height:22px; border-color:#a78bfa; border-style:solid; }
+.tl { top:-2px;left:-2px; border-width:3px 0 0 3px; border-radius:4px 0 0 0; }
+.tr { top:-2px;right:-2px; border-width:3px 3px 0 0; border-radius:0 4px 0 0; }
+.bl { bottom:-2px;left:-2px; border-width:0 0 3px 3px; border-radius:0 0 0 4px; }
+.br { bottom:-2px;right:-2px; border-width:0 3px 3px 0; border-radius:0 0 4px 0; }
+#scan-line {
   position:absolute; left:4px; right:4px; height:2px;
   background:linear-gradient(90deg,transparent,#a78bfa,transparent);
   animation:scan 2s linear infinite; top:10%;
-}}
-@keyframes scan {{ 0%{{top:10%}} 50%{{top:85%}} 100%{{top:10%}} }}
-#status {{
+}
+@keyframes scan { 0%{top:10%} 50%{top:85%} 100%{top:10%} }
+#status {
   width:100%; max-width:380px; padding:12px 16px;
   border-radius:10px; font-size:15px; text-align:center; font-weight:bold;
   background:#1e1e1e; color:#ccc; border:1px solid #333; min-height:48px;
-}}
-#status.success {{ background:#052e16; color:#4ade80; border-color:#166534; }}
-#status.error   {{ background:#2d0a0a; color:#f87171; border-color:#7f1d1d; }}
-#status.info    {{ background:#0c1a2e; color:#60a5fa; border-color:#1e3a5f; }}
-canvas {{ display:none; }}
-#start-btn {{
+}
+#status.success { background:#052e16; color:#4ade80; border-color:#166534; }
+#status.error   { background:#2d0a0a; color:#f87171; border-color:#7f1d1d; }
+#status.info    { background:#0c1a2e; color:#60a5fa; border-color:#1e3a5f; }
+canvas { display:none; }
+#start-btn {
   padding:12px 32px; font-size:15px; font-weight:bold;
   background:#7c3aed; color:white; border:none;
   border-radius:10px; cursor:pointer; width:100%; max-width:380px;
-}}
-#start-btn:disabled {{ background:#444; cursor:not-allowed; }}
+}
+#start-btn:disabled { background:#444; cursor:not-allowed; }
 </style>
 </head>
 <body>
@@ -267,7 +278,6 @@ canvas {{ display:none; }}
 </div>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script>
-const APP_URL = "{app_url}";
 const video=document.getElementById('video');
 const canvas=document.getElementById('canvas');
 const ctx=canvas.getContext('2d');
@@ -275,40 +285,78 @@ const status=document.getElementById('status');
 const btn=document.getElementById('start-btn');
 let scanning=false, cooldown=false;
 
-function setStatus(msg,type){{status.textContent=msg;status.className=type||"";}}
+function setStatus(msg,type){status.textContent=msg;status.className=type||"";}
 
-function startCamera(){{
+function fillParentInput(roll) {
+  try {
+    // Streamlit parent document-ல் hidden text input கண்டுபிடி
+    const doc = window.parent.document;
+    const inputs = doc.querySelectorAll('input[type="text"]');
+    for (let inp of inputs) {
+      // label_visibility="hidden" ஆனதால் aria-label check பண்றோம்
+      if (inp.getAttribute('aria-label') === 'scanned_roll_hidden' || 
+          inp.id && inp.id.includes('roll_box')) {
+        const nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
+        nativeSetter.call(inp, roll);
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+        inp.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
+        inp.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+        setStatus("✅ Marked: " + roll, "success");
+        return true;
+      }
+    }
+    // Fallback: எல்லா text inputs-ஐயும் try பண்ணு
+    for (let inp of inputs) {
+      if (inp.value === '' && !inp.getAttribute('placeholder')?.includes('Search')) {
+        const nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
+        nativeSetter.call(inp, roll);
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+        inp.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
+        inp.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+        setStatus("✅ Marked: " + roll, "success");
+        return true;
+      }
+    }
+  } catch(e) {
+    setStatus("⚠️ " + roll + " scanned!", "info");
+  }
+  return false;
+}
+
+function startCamera(){
   btn.disabled=true; btn.textContent="⏳ Starting...";
-  navigator.mediaDevices.getUserMedia({{video:{{facingMode:{{ideal:"environment"}},width:{{ideal:1280}},height:{{ideal:720}}}}}})
-  .then(stream=>{{
+  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}}})
+  .then(stream=>{
     video.srcObject=stream; video.play();
     scanning=true;
     setStatus("✅ Camera ready! QR code காட்டுங்க...","info");
     btn.textContent="✅ Camera On";
     requestAnimationFrame(tick);
-  }})
-  .catch(()=>{{
+  })
+  .catch(()=>{
     setStatus("❌ Camera Allow பண்ணுங்க!","error");
     btn.disabled=false; btn.textContent="📷 Try Again";
-  }});
-}}
+  });
+}
 
-function tick(){{
+function tick(){
   if(!scanning) return;
-  if(video.readyState===video.HAVE_ENOUGH_DATA){{
+  if(video.readyState===video.HAVE_ENOUGH_DATA){
     canvas.width=video.videoWidth; canvas.height=video.videoHeight;
     ctx.drawImage(video,0,0);
     const d=ctx.getImageData(0,0,canvas.width,canvas.height);
-    const code=jsQR(d.data,d.width,d.height,{{inversionAttempts:"dontInvert"}});
-    if(code&&code.data&&!cooldown){{
+    const code=jsQR(d.data,d.width,d.height,{inversionAttempts:"dontInvert"});
+    if(code&&code.data&&!cooldown){
       cooldown=true;
-      setStatus("✅ Scanned: "+code.data+" — Marking...","success");
-      // ✅ Hardcoded app URL use பண்றோம் — iframe restriction bypass
-      window.top.location.href = APP_URL + "?roll=" + encodeURIComponent(code.data);
-    }}
-  }}
+      setStatus("⏳ Scanned: "+code.data+" — Marking...","info");
+      fillParentInput(code.data);
+      setTimeout(()=>{ cooldown=false; }, 4000);
+    }
+  }
   requestAnimationFrame(tick);
-}}
+}
 </script>
 </body>
 </html>"""
