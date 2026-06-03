@@ -44,7 +44,6 @@ p, div, span, label { color: #e0d0a0 !important; }
 SHEET_ID = "1S6dtYyb8fmDGGtwAnXoerQrudv8ZKILxAy67B-37Bu8"
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-@st.cache_resource
 def get_sheets_client():
     creds_dict = st.secrets["gcp_service_account"]
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
@@ -53,7 +52,10 @@ def get_sheets_client():
 
 def get_workbook():
     client = get_sheets_client()
-    return client.open_by_key(SHEET_ID)
+    try:
+        return client.open_by_key(SHEET_ID)
+    except:
+        return client.open("QR_Attendance")
 
 def get_students_sheet():
     wb = get_workbook()
