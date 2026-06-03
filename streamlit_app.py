@@ -44,12 +44,14 @@ p, div, span, label { color: #e0d0a0 !important; }
 SHEET_ID = "1S6dtYyb8fmDGGtwAnXoerQrudv8ZKILxAy67B-37Bu8"
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
+@st.cache_resource(ttl=300)
 def get_sheets_client():
     creds_dict = st.secrets["gcp_service_account"]
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
     return client
 
+@st.cache_resource(ttl=300)
 def get_workbook():
     client = get_sheets_client()
     try:
