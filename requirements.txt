@@ -4,3 +4,4 @@ qrcode[pil]
 pandas
 gspread
 google-auth
+streamlit-js-eval
