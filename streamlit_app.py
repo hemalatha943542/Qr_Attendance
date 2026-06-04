@@ -5,7 +5,6 @@ import io
 from datetime import date
 import gspread
 from google.oauth2.service_account import Credentials
-from streamlit_autorefresh import st_autorefresh
 from streamlit_js_eval import streamlit_js_eval
 
 st.set_page_config(page_title="Auxilium College - QR Attendance", page_icon="🎓", layout="wide")
@@ -44,14 +43,13 @@ p, div, span, label { color: #e0d0a0 !important; }
 SHEET_ID = "1S6dtYyb8fmDGGtwAnXoerQrudv8ZKILxAy67B-37Bu8"
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-@st.cache_resource(ttl=300)
+@st.cache_resource(ttl=3600)
 def get_sheets_client():
     creds_dict = st.secrets["gcp_service_account"]
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    client = gspread.authorize(creds)
-    return client
+    return gspread.authorize(creds)
 
-@st.cache_resource(ttl=300)
+@st.cache_resource(ttl=3600)
 def get_workbook():
     client = get_sheets_client()
     try:
@@ -61,33 +59,23 @@ def get_workbook():
 
 def get_students_sheet():
     wb = get_workbook()
-    # Case-insensitive search
     for ws in wb.worksheets():
         if ws.title.strip().lower() == "students":
             return ws
-    # Not found - create it
-    try:
-        ws = wb.add_worksheet(title="Students", rows="1000", cols="5")
-        ws.append_row(["ID", "Name", "Roll Number", "Exam Number"])
-        return ws
-    except Exception as e:
-        st.error(f"Students sheet error: {e}")
-        st.stop()
+    ws = wb.add_worksheet(title="Students", rows="1000", cols="5")
+    ws.append_row(["ID", "Name", "Roll Number", "Exam Number"])
+    return ws
 
 def get_attendance_sheet():
     wb = get_workbook()
-    # Case-insensitive search
     for ws in wb.worksheets():
         if ws.title.strip().lower() == "attendance":
             return ws
-    # Not found - create it
-    try:
-        ws = wb.add_worksheet(title="Attendance", rows="10000", cols="4")
-        ws.append_row(["Student ID", "Name", "Date", "Status"])
-        return ws
-    except Exception as e:
-        st.error(f"Attendance sheet error: {e}")
-        st.stop()
+    ws = wb.add_worksheet(title="Attendance", rows="10000", cols="4")
+    ws.append_row(["Student ID", "Name", "Date", "Status"])
+    return ws
+
+# ===================== DATA FUNCTIONS =====================
 
 def get_students():
     ws = get_students_sheet()
@@ -160,9 +148,8 @@ def get_today_summary():
     ws = get_students_sheet()
     today = str(date.today())
     students = {str(s["ID"]): s for s in ws.get_all_records()}
-    att_rows = aws.get_all_records()
     result = []
-    for r in att_rows:
+    for r in aws.get_all_records():
         if r["Date"] == today:
             s = students.get(str(r["Student ID"]), {})
             result.append((r["Name"], s.get("Roll Number",""), s.get("Exam Number",""), r["Status"]))
@@ -172,9 +159,8 @@ def get_report(filter_date):
     aws = get_attendance_sheet()
     ws = get_students_sheet()
     students = {str(s["ID"]): s for s in ws.get_all_records()}
-    rows = aws.get_all_records()
     result = []
-    for r in rows:
+    for r in aws.get_all_records():
         if r["Date"] == str(filter_date):
             s = students.get(str(r["Student ID"]), {})
             result.append((r["Name"], s.get("Roll Number",""), s.get("Exam Number",""), r["Date"], r["Status"]))
@@ -244,22 +230,25 @@ st.markdown("---")
 # ===================== STUDENTS LIST =====================
 
 st.markdown('<h2 id="students-list">👥 Students List</h2>', unsafe_allow_html=True)
-students = get_students()
-if students:
-    h0,h1,h2,h3,h4,h5 = st.columns([1,2,2,2,2,1])
-    h0.markdown("**S.No**"); h1.markdown("**Name**"); h2.markdown("**Roll**")
-    h3.markdown("**Exam No**"); h4.markdown("**QR Code**"); h5.markdown("**Delete**")
-    st.markdown("---")
-    for i, s in enumerate(students, 1):
-        c0,c1,c2,c3,c4,c5 = st.columns([1,2,2,2,2,1])
-        c0.write(i); c1.write(s[1]); c2.write(s[2])
-        c3.write(s[3] if s[3] else "-")
-        with c4: st.image(generate_qr(s[2]), width=80)
-        with c5:
-            if st.button("🗑️", key=f"d{s[0]}"):
-                delete_student(s[0]); st.rerun()
-else:
-    st.info("No students yet!")
+try:
+    students = get_students()
+    if students:
+        h0,h1,h2,h3,h4,h5 = st.columns([1,2,2,2,2,1])
+        h0.markdown("**S.No**"); h1.markdown("**Name**"); h2.markdown("**Roll**")
+        h3.markdown("**Exam No**"); h4.markdown("**QR Code**"); h5.markdown("**Delete**")
+        st.markdown("---")
+        for i, s in enumerate(students, 1):
+            c0,c1,c2,c3,c4,c5 = st.columns([1,2,2,2,2,1])
+            c0.write(i); c1.write(s[1]); c2.write(s[2])
+            c3.write(s[3] if s[3] else "-")
+            with c4: st.image(generate_qr(s[2]), width=80)
+            with c5:
+                if st.button("🗑️", key=f"d{s[0]}"):
+                    delete_student(s[0]); st.rerun()
+    else:
+        st.info("No students yet!")
+except Exception as e:
+    st.error(f"⚠️ Google Sheets rate limit — 1 minute பிறகு refresh பண்ணுங்க!")
 
 st.markdown("---")
 
@@ -283,10 +272,7 @@ if not st.session_state.scanner_unlocked:
             else:
                 st.error("❌ தவறான Password!")
 else:
-    # Auto refresh every 2 seconds
-    st_autorefresh(interval=2000, key="scanner_refresh")
-
-    st.info("📱 QR code scan பண்ணினா 2 seconds-ல் automatically Present mark ஆகும்!")
+    st.info("📱 QR code scan பண்ணினா automatically Present mark ஆகும்!")
 
     if st.button("🔒 Lock Scanner"):
         st.session_state.scanner_unlocked = False
@@ -301,7 +287,7 @@ else:
         elif s == "new":      st.success(f"✅ {n} — Present Marked! 🎉")
         elif s == "notfound": st.error(f"❌ '{n}' — Student not found!")
 
-    # Read from localStorage every refresh
+    # Read scanned roll from localStorage
     scanned_roll = streamlit_js_eval(
         js_expressions="localStorage.getItem('qr_scanned_roll') || ''",
         key="read_roll"
@@ -310,11 +296,28 @@ else:
     if scanned_roll and str(scanned_roll).strip() and str(scanned_roll).strip() != st.session_state.last_scanned:
         roll_val = str(scanned_roll).strip()
         st.session_state.last_scanned = roll_val
-        name_found, status_val = mark_present_by_roll(roll_val)
-        st.session_state.scan_result_name = name_found or roll_val
-        st.session_state.scan_result_status = status_val
+        try:
+            name_found, status_val = mark_present_by_roll(roll_val)
+            st.session_state.scan_result_name = name_found or roll_val
+            st.session_state.scan_result_status = status_val
+        except:
+            st.session_state.scan_result_name = roll_val
+            st.session_state.scan_result_status = "notfound"
         streamlit_js_eval(js_expressions="localStorage.removeItem('qr_scanned_roll')", key="clear_roll")
         st.rerun()
+
+    # Manual submit backup
+    col_input, col_btn = st.columns([4, 1])
+    with col_input:
+        manual_roll = st.text_input("Roll Number", key="manual_roll", label_visibility="collapsed", placeholder="Manual-ஆ roll number போடலாம்...")
+    with col_btn:
+        if st.button("✅ Mark", use_container_width=True):
+            if manual_roll.strip():
+                name_found, status_val = mark_present_by_roll(manual_roll.strip())
+                st.session_state.scan_result_name = name_found or manual_roll.strip()
+                st.session_state.scan_result_status = status_val
+                st.session_state.last_scanned = manual_roll.strip()
+                st.rerun()
 
     scanner_html = """<!DOCTYPE html>
 <html>
@@ -395,7 +398,7 @@ function setStatus(msg,type){status.textContent=msg;status.className=type||"";}
 function sendRoll(roll) {
   try {
     window.parent.localStorage.setItem('qr_scanned_roll', roll);
-    setStatus("✅ Scanned: " + roll + " — Marking...", "success");
+    setStatus("✅ Scanned: " + roll + " — Processing...", "success");
   } catch(e) {
     setStatus("❌ Error: " + e.message, "error");
   }
@@ -434,11 +437,18 @@ function tick(){
   }
   requestAnimationFrame(tick);
 }
+
+// Poll localStorage every 500ms - if cleared by Streamlit, show ready
+setInterval(()=>{
+  if(!cooldown && window.parent.localStorage.getItem('qr_scanned_roll')){
+    // still waiting
+  }
+}, 500);
 </script>
 </body>
 </html>"""
 
-    components.html(scanner_html, height=500, scrolling=False)
+    components.html(scanner_html, height=520, scrolling=False)
 
 st.markdown("---")
 
@@ -446,34 +456,42 @@ st.markdown("---")
 
 st.markdown('<h2 id="today-summary">📋 Today Summary</h2>', unsafe_allow_html=True)
 if st.button("🔴 Mark Absent for Remaining Students", use_container_width=True):
-    mark_all_absent(); st.success("✅ Absent marked!"); st.rerun()
+    try:
+        mark_all_absent()
+        st.success("✅ Absent marked!")
+        st.rerun()
+    except:
+        st.error("⚠️ Rate limit — 1 minute பிறகு try பண்ணுங்க!")
 
-summary = get_today_summary()
-present_list = [r for r in summary if r[3]=='Present']
-absent_list  = [r for r in summary if r[3]=='Absent']
+try:
+    summary = get_today_summary()
+    present_list = [r for r in summary if r[3]=='Present']
+    absent_list  = [r for r in summary if r[3]=='Absent']
 
-col_p, col_a = st.columns(2)
-with col_p:
-    st.markdown(f"### ✅ Present ({len(present_list)})")
-    if present_list:
-        p0,p1,p2 = st.columns([2,2,2])
-        p0.markdown("**Name**"); p1.markdown("**Roll No**"); p2.markdown("**Exam No**")
-        st.markdown("---")
-        for i,r in enumerate(present_list,1):
-            pp0,pp1,pp2=st.columns([2,2,2])
-            pp0.write(f"{i}. {r[0]}"); pp1.write(r[1]); pp2.write(r[2] if r[2] else "-")
-    else: st.info("No present students yet!")
+    col_p, col_a = st.columns(2)
+    with col_p:
+        st.markdown(f"### ✅ Present ({len(present_list)})")
+        if present_list:
+            p0,p1,p2 = st.columns([2,2,2])
+            p0.markdown("**Name**"); p1.markdown("**Roll No**"); p2.markdown("**Exam No**")
+            st.markdown("---")
+            for i,r in enumerate(present_list,1):
+                pp0,pp1,pp2=st.columns([2,2,2])
+                pp0.write(f"{i}. {r[0]}"); pp1.write(r[1]); pp2.write(r[2] if r[2] else "-")
+        else: st.info("No present students yet!")
 
-with col_a:
-    st.markdown(f"### ❌ Absent ({len(absent_list)})")
-    if absent_list:
-        a0,a1,a2 = st.columns([2,2,2])
-        a0.markdown("**Name**"); a1.markdown("**Roll No**"); a2.markdown("**Exam No**")
-        st.markdown("---")
-        for i,r in enumerate(absent_list,1):
-            aa0,aa1,aa2=st.columns([2,2,2])
-            aa0.write(f"{i}. {r[0]}"); aa1.write(r[1]); aa2.write(r[2] if r[2] else "-")
-    else: st.info("No absent students!")
+    with col_a:
+        st.markdown(f"### ❌ Absent ({len(absent_list)})")
+        if absent_list:
+            a0,a1,a2 = st.columns([2,2,2])
+            a0.markdown("**Name**"); a1.markdown("**Roll No**"); a2.markdown("**Exam No**")
+            st.markdown("---")
+            for i,r in enumerate(absent_list,1):
+                aa0,aa1,aa2=st.columns([2,2,2])
+                aa0.write(f"{i}. {r[0]}"); aa1.write(r[1]); aa2.write(r[2] if r[2] else "-")
+        else: st.info("No absent students!")
+except:
+    st.error("⚠️ Rate limit — 1 minute பிறகு refresh பண்ணுங்க!")
 
 st.markdown("---")
 
@@ -482,30 +500,33 @@ st.markdown("---")
 st.markdown('<h2 id="attendance-report">📊 Attendance Report</h2>', unsafe_allow_html=True)
 filter_date = st.date_input("📅 Date Select", value=date.today(), key="report_date")
 if st.button("🔄 Refresh Report", use_container_width=True): st.rerun()
-records = get_report(filter_date)
 
-if records:
-    present_count = sum(1 for r in records if r[4]=='Present')
-    absent_count  = sum(1 for r in records if r[4]=='Absent')
-    m1,m2,m3 = st.columns(3)
-    m1.metric("📊 Total", len(records)); m2.metric("✅ Present", present_count); m3.metric("❌ Absent", absent_count)
-    st.markdown("---")
-    rep_p = [r for r in records if r[4]=='Present']
-    rep_a = [r for r in records if r[4]=='Absent']
-    cr1,cr2 = st.columns(2)
-    with cr1:
-        st.markdown(f"### ✅ Present ({len(rep_p)})")
-        if rep_p:
-            for i,r in enumerate(rep_p,1):
-                c1,c2,c3=st.columns([2,2,2])
-                c1.write(f"{i}. {r[0]}"); c2.write(r[1]); c3.write(r[2] if r[2] else "-")
-        else: st.info("No present records!")
-    with cr2:
-        st.markdown(f"### ❌ Absent ({len(rep_a)})")
-        if rep_a:
-            for i,r in enumerate(rep_a,1):
-                c1,c2,c3=st.columns([2,2,2])
-                c1.write(f"{i}. {r[0]}"); c2.write(r[1]); c3.write(r[2] if r[2] else "-")
-        else: st.info("No absent records!")
-else:
-    st.info(f"📅 {filter_date} — No records!")
+try:
+    records = get_report(filter_date)
+    if records:
+        present_count = sum(1 for r in records if r[4]=='Present')
+        absent_count  = sum(1 for r in records if r[4]=='Absent')
+        m1,m2,m3 = st.columns(3)
+        m1.metric("📊 Total", len(records)); m2.metric("✅ Present", present_count); m3.metric("❌ Absent", absent_count)
+        st.markdown("---")
+        rep_p = [r for r in records if r[4]=='Present']
+        rep_a = [r for r in records if r[4]=='Absent']
+        cr1,cr2 = st.columns(2)
+        with cr1:
+            st.markdown(f"### ✅ Present ({len(rep_p)})")
+            if rep_p:
+                for i,r in enumerate(rep_p,1):
+                    c1,c2,c3=st.columns([2,2,2])
+                    c1.write(f"{i}. {r[0]}"); c2.write(r[1]); c3.write(r[2] if r[2] else "-")
+            else: st.info("No present records!")
+        with cr2:
+            st.markdown(f"### ❌ Absent ({len(rep_a)})")
+            if rep_a:
+                for i,r in enumerate(rep_a,1):
+                    c1,c2,c3=st.columns([2,2,2])
+                    c1.write(f"{i}. {r[0]}"); c2.write(r[1]); c3.write(r[2] if r[2] else "-")
+            else: st.info("No absent records!")
+    else:
+        st.info(f"📅 {filter_date} — No records!")
+except:
+    st.error("⚠️ Rate limit — 1 minute பிறகு refresh பண்ணுங்க!")
