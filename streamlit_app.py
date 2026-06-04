@@ -7,6 +7,7 @@ from datetime import date
 import gspread
 from google.oauth2.service_account import Credentials
 import json
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Auxilium College - QR Attendance", page_icon="🎓", layout="wide")
 
@@ -266,10 +267,6 @@ else:
 st.markdown("---")
 
 # ===================== QR SCANNER =====================
-
-from streamlit_js_eval import streamlit_js_eval
-
-# ===================== QR SCANNER =====================
 st.markdown('<h2 id="qr-scanner">📷 QR Scanner</h2>', unsafe_allow_html=True)
 
 SCANNER_PASSWORD = "auxilium2024"
@@ -288,7 +285,10 @@ if not st.session_state.scanner_unlocked:
             else:
                 st.error("❌ தவறான Password!")
 else:
-    st.info("📱 QR code scan பண்ணினா automatically Present mark ஆகும்!")
+    # ✅ Every 2 seconds auto refresh
+    st_autorefresh(interval=2000, key="scanner_refresh")
+
+    st.info("📱 QR code scan பண்ணினா 2 seconds-ல் automatically Present mark ஆகும்!")
     if st.button("🔒 Lock Scanner"):
         st.session_state.scanner_unlocked = False
         st.session_state.scan_result_name = ""
@@ -302,17 +302,23 @@ else:
         elif s == "new":      st.success(f"✅ {n} — Present Marked! 🎉")
         elif s == "notfound": st.error(f"❌ '{n}' — Student not found!")
 
-    # ✅ streamlit-js-eval மூலம் JS return value படிக்கிறோம்
-    scanned_roll = streamlit_js_eval(js_expressions="window._scannedRoll || ''", key="get_roll")
-
-    if scanned_roll and str(scanned_roll).strip() != st.session_state.last_scanned:
+    # ✅ JS localStorage மூலம் roll pass பண்றோம்
+    # Every refresh-ல் localStorage check பண்றோம்
+    from streamlit_js_eval import streamlit_js_eval
+    
+    scanned_roll = streamlit_js_eval(
+        js_expressions="localStorage.getItem('qr_scanned_roll') || ''",
+        key="read_roll"
+    )
+    
+    if scanned_roll and str(scanned_roll).strip() and str(scanned_roll).strip() != st.session_state.last_scanned:
         roll_val = str(scanned_roll).strip()
         st.session_state.last_scanned = roll_val
         name_found, status_val = mark_present_by_roll(roll_val)
         st.session_state.scan_result_name = name_found or roll_val
         st.session_state.scan_result_status = status_val
-        # Reset the JS variable
-        streamlit_js_eval(js_expressions="window._scannedRoll = ''", key="clear_roll")
+        # localStorage clear பண்றோம்
+        streamlit_js_eval(js_expressions="localStorage.removeItem('qr_scanned_roll')", key="clear_roll")
         st.rerun()
 
     scanner_html = """<!DOCTYPE html>
@@ -355,8 +361,8 @@ video { width:100%; display:block; border-radius:14px; }
   background:#0d1f3c; color:#f0d060; border:1px solid #c9a227; min-height:48px;
 }
 #status.success { background:#052e16; color:#4ade80; border-color:#166534; }
-#status.error   { background:#2d0a0a; color:#f87171; border-color:#7f1d1d; }
-#status.info    { background:#0d1f3c; color:#f0d060; border-color:#c9a227; }
+#status.error { background:#2d0a0a; color:#f87171; border-color:#7f1d1d; }
+#status.info { background:#0d1f3c; color:#f0d060; border-color:#c9a227; }
 canvas { display:none; }
 #start-btn {
   padding:12px 32px; font-size:15px; font-weight:bold;
@@ -392,10 +398,13 @@ let scanning=false, cooldown=false;
 function setStatus(msg,type){status.textContent=msg;status.className=type||"";}
 
 function sendRoll(roll) {
-  // parent window-ல் _scannedRoll set பண்றோம்
   try {
-    window.parent._scannedRoll = roll;
-  } catch(e) {}
+    // ✅ parent window localStorage-ல் save பண்றோம்
+    window.parent.localStorage.setItem('qr_scanned_roll', roll);
+    setStatus("✅ Scanned: " + roll + " — Marking...", "success");
+  } catch(e) {
+    setStatus("❌ Error: " + e.message, "error");
+  }
 }
 
 function startCamera(){
@@ -425,9 +434,8 @@ function tick(){
     const code=jsQR(d.data,d.width,d.height,{inversionAttempts:"dontInvert"});
     if(code&&code.data&&!cooldown){
       cooldown=true;
-      setStatus("✅ Scanned: "+code.data,"success");
       sendRoll(code.data);
-      setTimeout(()=>{ cooldown=false; setStatus("✅ Ready! Next QR காட்டுங்க...","info"); },4000);
+      setTimeout(()=>{ cooldown=false; setStatus("✅ Ready! Next QR காட்டுங்க...","info"); },3000);
     }
   }
   requestAnimationFrame(tick);
@@ -436,7 +444,9 @@ function tick(){
 </body>
 </html>"""
 
-    components.html(scanner_html, height=500, scrolling=False)# ===================== TODAY SUMMARY =====================
+    components.html(scanner_html, height=500, scrolling=False)
+
+#===================== TODAY SUMMARY =====================
 
 st.markdown('<h2 id="today-summary">📋 Today Summary</h2>', unsafe_allow_html=True)
 if st.button("🔴 Mark Absent for Remaining Students", use_container_width=True):
