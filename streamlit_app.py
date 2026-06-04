@@ -267,9 +267,21 @@ st.markdown("---")
 
 # ===================== QR SCANNER =====================
 
+# ===================== QR SCANNER =====================
+
 st.markdown('<h2 id="qr-scanner">📷 QR Scanner</h2>', unsafe_allow_html=True)
 
 SCANNER_PASSWORD = "auxilium2024"
+
+# pending_roll processing - TOP-ல் வையுங்க
+if st.session_state.get('pending_roll', '') and st.session_state.pending_roll != st.session_state.last_scanned:
+    roll_to_mark = st.session_state.pending_roll
+    st.session_state.last_scanned = roll_to_mark
+    st.session_state.pending_roll = ""
+    name_found, status_val = mark_present_by_roll(roll_to_mark)
+    st.session_state.scan_result_name = name_found or roll_to_mark
+    st.session_state.scan_result_status = status_val
+    st.rerun()
 
 if not st.session_state.scanner_unlocked:
     st.warning("🔒 Scanner பயன்படுத்த Teacher Password போடுங்கள்!")
@@ -288,6 +300,7 @@ else:
     st.info("📱 QR code scan பண்ணினா automatically Present mark ஆகும்!")
     if st.button("🔒 Lock Scanner"):
         st.session_state.scanner_unlocked = False
+        st.session_state.scan_result_name = ""
         st.rerun()
 
     if st.session_state.scan_result_name:
@@ -298,10 +311,19 @@ else:
         elif s == "new":      st.success(f"✅ {n} — Present Marked! 🎉")
         elif s == "notfound": st.error(f"❌ '{n}' — Student not found!")
 
-    roll_input = st.text_input("scanned_roll_hidden", value="", key="roll_box", label_visibility="collapsed")
-    if roll_input and roll_input.strip() != st.session_state.last_scanned:
-        st.session_state.pending_roll = roll_input.strip()
-        st.rerun()
+    # ✅ on_change - இதுவே rerun trigger பண்ணும்
+    def on_scan_change():
+        val = st.session_state.get('scanned_roll_input', '').strip()
+        if val and val != st.session_state.last_scanned:
+            st.session_state.pending_roll = val
+
+    st.text_input(
+        "📱 Scanned Roll Number",
+        key="scanned_roll_input",
+        on_change=on_scan_change,
+        placeholder="Scanner automatically fill பண்ணும்...",
+        label_visibility="collapsed"
+    )
 
     scanner_html = """<!DOCTYPE html>
 <html>
@@ -375,33 +397,38 @@ const canvas=document.getElementById('canvas');
 const ctx=canvas.getContext('2d');
 const status=document.getElementById('status');
 const btn=document.getElementById('start-btn');
-let scanning=false, cooldown=false;
+let scanning=false, cooldown=false, lastSent="";
 
 function setStatus(msg,type){status.textContent=msg;status.className=type||"";}
 
 function fillParentInput(roll) {
   try {
     const doc = window.parent.document;
+    // key="scanned_roll_input" உள்ள input தேடுங்க
     const inputs = doc.querySelectorAll('input[type="text"]');
     for (let inp of inputs) {
-      const wrapper = inp.closest('[data-testid="stTextInput"]');
-      if (wrapper) {
-        const nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
+      // label_visibility="collapsed" ஆனதால் placeholder மூலம் identify பண்றோம்
+      if (inp.placeholder && inp.placeholder.includes('Scanner')) {
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+          window.parent.HTMLInputElement.prototype, 'value'
+        ).set;
         nativeSetter.call(inp, roll);
-        inp.dispatchEvent(new Event('input', { bubbles: true }));
-        inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
-        inp.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
-        inp.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+        inp.dispatchEvent(new Event('input', {bubbles:true}));
+        inp.dispatchEvent(new Event('change', {bubbles:true}));
+        inp.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',keyCode:13,bubbles:true}));
+        inp.dispatchEvent(new KeyboardEvent('keyup',  {key:'Enter',keyCode:13,bubbles:true}));
         return true;
       }
     }
-  } catch(e) {}
+  } catch(e) { console.error(e); }
   return false;
 }
 
 function startCamera(){
   btn.disabled=true; btn.textContent="⏳ Starting...";
-  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}}})
+  navigator.mediaDevices.getUserMedia({
+    video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}}
+  })
   .then(stream=>{
     video.srcObject=stream; video.play();
     scanning=true;
@@ -422,11 +449,14 @@ function tick(){
     ctx.drawImage(video,0,0);
     const d=ctx.getImageData(0,0,canvas.width,canvas.height);
     const code=jsQR(d.data,d.width,d.height,{inversionAttempts:"dontInvert"});
-    if(code&&code.data&&!cooldown){
-      cooldown=true;
-      setStatus("✅ Scanned: "+code.data,"success");
+    if(code && code.data && !cooldown && code.data !== lastSent){
+      cooldown=true; lastSent=code.data;
+      setStatus("✅ Scanned: "+code.data+" — Marking...","success");
       fillParentInput(code.data);
-      setTimeout(()=>{ cooldown=false; setStatus("✅ Ready! Next QR காட்டுங்க...","info"); }, 4000);
+      setTimeout(()=>{
+        cooldown=false;
+        setStatus("✅ Ready! Next QR காட்டுங்க...","info");
+      }, 4000);
     }
   }
   requestAnimationFrame(tick);
@@ -436,9 +466,6 @@ function tick(){
 </html>"""
 
     components.html(scanner_html, height=500, scrolling=False)
-
-st.markdown("---")
-
 # ===================== TODAY SUMMARY =====================
 
 st.markdown('<h2 id="today-summary">📋 Today Summary</h2>', unsafe_allow_html=True)
