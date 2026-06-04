@@ -267,27 +267,18 @@ st.markdown("---")
 
 # ===================== QR SCANNER =====================
 
-# ===================== QR SCANNER =====================
+from streamlit_js_eval import streamlit_js_eval
 
+# ===================== QR SCANNER =====================
 st.markdown('<h2 id="qr-scanner">📷 QR Scanner</h2>', unsafe_allow_html=True)
 
 SCANNER_PASSWORD = "auxilium2024"
-
-# pending_roll processing - TOP-ல் வையுங்க
-if st.session_state.get('pending_roll', '') and st.session_state.pending_roll != st.session_state.last_scanned:
-    roll_to_mark = st.session_state.pending_roll
-    st.session_state.last_scanned = roll_to_mark
-    st.session_state.pending_roll = ""
-    name_found, status_val = mark_present_by_roll(roll_to_mark)
-    st.session_state.scan_result_name = name_found or roll_to_mark
-    st.session_state.scan_result_status = status_val
-    st.rerun()
 
 if not st.session_state.scanner_unlocked:
     st.warning("🔒 Scanner பயன்படுத்த Teacher Password போடுங்கள்!")
     pwd_col1, pwd_col2 = st.columns([3, 1])
     with pwd_col1:
-        pwd_input = st.text_input("Password", type="password", key="pwd_input", placeholder="Teacher password உள்ளிடுங்கள்...")
+        pwd_input = st.text_input("Password", type="password", key="pwd_input")
     with pwd_col2:
         st.write(""); st.write("")
         if st.button("🔓 Unlock", use_container_width=True):
@@ -311,19 +302,18 @@ else:
         elif s == "new":      st.success(f"✅ {n} — Present Marked! 🎉")
         elif s == "notfound": st.error(f"❌ '{n}' — Student not found!")
 
-    # ✅ on_change - இதுவே rerun trigger பண்ணும்
-    def on_scan_change():
-        val = st.session_state.get('scanned_roll_input', '').strip()
-        if val and val != st.session_state.last_scanned:
-            st.session_state.pending_roll = val
+    # ✅ streamlit-js-eval மூலம் JS return value படிக்கிறோம்
+    scanned_roll = streamlit_js_eval(js_expressions="window._scannedRoll || ''", key="get_roll")
 
-    st.text_input(
-        "📱 Scanned Roll Number",
-        key="scanned_roll_input",
-        on_change=on_scan_change,
-        placeholder="Scanner automatically fill பண்ணும்...",
-        label_visibility="collapsed"
-    )
+    if scanned_roll and str(scanned_roll).strip() != st.session_state.last_scanned:
+        roll_val = str(scanned_roll).strip()
+        st.session_state.last_scanned = roll_val
+        name_found, status_val = mark_present_by_roll(roll_val)
+        st.session_state.scan_result_name = name_found or roll_val
+        st.session_state.scan_result_status = status_val
+        # Reset the JS variable
+        streamlit_js_eval(js_expressions="window._scannedRoll = ''", key="clear_roll")
+        st.rerun()
 
     scanner_html = """<!DOCTYPE html>
 <html>
@@ -397,31 +387,15 @@ const canvas=document.getElementById('canvas');
 const ctx=canvas.getContext('2d');
 const status=document.getElementById('status');
 const btn=document.getElementById('start-btn');
-let scanning=false, cooldown=false, lastSent="";
+let scanning=false, cooldown=false;
 
 function setStatus(msg,type){status.textContent=msg;status.className=type||"";}
 
-function fillParentInput(roll) {
+function sendRoll(roll) {
+  // parent window-ல் _scannedRoll set பண்றோம்
   try {
-    const doc = window.parent.document;
-    // key="scanned_roll_input" உள்ள input தேடுங்க
-    const inputs = doc.querySelectorAll('input[type="text"]');
-    for (let inp of inputs) {
-      // label_visibility="collapsed" ஆனதால் placeholder மூலம் identify பண்றோம்
-      if (inp.placeholder && inp.placeholder.includes('Scanner')) {
-        const nativeSetter = Object.getOwnPropertyDescriptor(
-          window.parent.HTMLInputElement.prototype, 'value'
-        ).set;
-        nativeSetter.call(inp, roll);
-        inp.dispatchEvent(new Event('input', {bubbles:true}));
-        inp.dispatchEvent(new Event('change', {bubbles:true}));
-        inp.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',keyCode:13,bubbles:true}));
-        inp.dispatchEvent(new KeyboardEvent('keyup',  {key:'Enter',keyCode:13,bubbles:true}));
-        return true;
-      }
-    }
-  } catch(e) { console.error(e); }
-  return false;
+    window.parent._scannedRoll = roll;
+  } catch(e) {}
 }
 
 function startCamera(){
@@ -449,14 +423,11 @@ function tick(){
     ctx.drawImage(video,0,0);
     const d=ctx.getImageData(0,0,canvas.width,canvas.height);
     const code=jsQR(d.data,d.width,d.height,{inversionAttempts:"dontInvert"});
-    if(code && code.data && !cooldown && code.data !== lastSent){
-      cooldown=true; lastSent=code.data;
-      setStatus("✅ Scanned: "+code.data+" — Marking...","success");
-      fillParentInput(code.data);
-      setTimeout(()=>{
-        cooldown=false;
-        setStatus("✅ Ready! Next QR காட்டுங்க...","info");
-      }, 4000);
+    if(code&&code.data&&!cooldown){
+      cooldown=true;
+      setStatus("✅ Scanned: "+code.data,"success");
+      sendRoll(code.data);
+      setTimeout(()=>{ cooldown=false; setStatus("✅ Ready! Next QR காட்டுங்க...","info"); },4000);
     }
   }
   requestAnimationFrame(tick);
@@ -465,8 +436,7 @@ function tick(){
 </body>
 </html>"""
 
-    components.html(scanner_html, height=500, scrolling=False)
-# ===================== TODAY SUMMARY =====================
+    components.html(scanner_html, height=500, scrolling=False)# ===================== TODAY SUMMARY =====================
 
 st.markdown('<h2 id="today-summary">📋 Today Summary</h2>', unsafe_allow_html=True)
 if st.button("🔴 Mark Absent for Remaining Students", use_container_width=True):
