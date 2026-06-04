@@ -1,13 +1,12 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import sqlite3
 import qrcode
 import io
 from datetime import date
 import gspread
 from google.oauth2.service_account import Credentials
-import json
 from streamlit_autorefresh import st_autorefresh
+from streamlit_js_eval import streamlit_js_eval
 
 st.set_page_config(page_title="Auxilium College - QR Attendance", page_icon="🎓", layout="wide")
 
@@ -62,21 +61,33 @@ def get_workbook():
 
 def get_students_sheet():
     wb = get_workbook()
+    # Case-insensitive search
+    for ws in wb.worksheets():
+        if ws.title.strip().lower() == "students":
+            return ws
+    # Not found - create it
     try:
-        return wb.worksheet("Students")
-    except:
-        ws = wb.add_worksheet("Students", 1000, 5)
+        ws = wb.add_worksheet(title="Students", rows="1000", cols="5")
         ws.append_row(["ID", "Name", "Roll Number", "Exam Number"])
         return ws
+    except Exception as e:
+        st.error(f"Students sheet error: {e}")
+        st.stop()
 
 def get_attendance_sheet():
     wb = get_workbook()
+    # Case-insensitive search
+    for ws in wb.worksheets():
+        if ws.title.strip().lower() == "attendance":
+            return ws
+    # Not found - create it
     try:
-        return wb.worksheet("Attendance")
-    except:
-        ws = wb.add_worksheet("Attendance", 10000, 4)
+        ws = wb.add_worksheet(title="Attendance", rows="10000", cols="4")
         ws.append_row(["Student ID", "Name", "Date", "Status"])
         return ws
+    except Exception as e:
+        st.error(f"Attendance sheet error: {e}")
+        st.stop()
 
 def get_students():
     ws = get_students_sheet()
@@ -86,7 +97,6 @@ def get_students():
 def add_student(name, roll, exam):
     ws = get_students_sheet()
     rows = ws.get_all_records()
-    # Check duplicate roll
     for r in rows:
         if str(r["Roll Number"]) == str(roll):
             return False
@@ -96,10 +106,12 @@ def add_student(name, roll, exam):
 
 def delete_student(sid):
     ws = get_students_sheet()
-    cell = ws.find(str(sid))
-    if cell:
-        ws.delete_rows(cell.row)
-    # Delete attendance too
+    try:
+        cell = ws.find(str(sid))
+        if cell:
+            ws.delete_rows(cell.row)
+    except:
+        pass
     aws = get_attendance_sheet()
     records = aws.get_all_records()
     rows_to_delete = []
@@ -114,7 +126,7 @@ def mark_present_by_roll(roll):
     rows = ws.get_all_records()
     student = None
     for r in rows:
-        if str(r["Roll Number"]) == str(roll):
+        if str(r["Roll Number"]).strip() == str(roll).strip():
             student = r
             break
     if not student:
@@ -145,14 +157,8 @@ def mark_all_absent():
 
 def get_today_summary():
     aws = get_attendance_sheet()
-    today = str(date.today())
-    rows = aws.get_all_records()
-    result = []
-    for r in rows:
-        if r["Date"] == today:
-            result.append((r["Name"], r.get("Roll Number",""), r.get("Exam Number",""), r["Status"]))
-    # Get roll/exam from students sheet
     ws = get_students_sheet()
+    today = str(date.today())
     students = {str(s["ID"]): s for s in ws.get_all_records()}
     att_rows = aws.get_all_records()
     result = []
@@ -175,7 +181,7 @@ def get_report(filter_date):
     return result
 
 def generate_qr(roll):
-    img = qrcode.make(roll)
+    img = qrcode.make(str(roll))
     buf = io.BytesIO()
     img.save(buf, format='PNG')
     buf.seek(0)
@@ -183,20 +189,11 @@ def generate_qr(roll):
 
 # ===================== SESSION STATE =====================
 
-for key in ['last_scanned','scan_result_name','scan_result_status','pending_roll']:
+for key in ['last_scanned','scan_result_name','scan_result_status']:
     if key not in st.session_state:
         st.session_state[key] = ""
 if 'scanner_unlocked' not in st.session_state:
     st.session_state.scanner_unlocked = False
-
-if st.session_state.pending_roll and st.session_state.pending_roll != st.session_state.last_scanned:
-    roll_to_mark = st.session_state.pending_roll
-    st.session_state.last_scanned = roll_to_mark
-    st.session_state.pending_roll = ""
-    name_found, status_val = mark_present_by_roll(roll_to_mark)
-    st.session_state.scan_result_name = name_found or roll_to_mark
-    st.session_state.scan_result_status = status_val
-    st.rerun()
 
 # ===================== SIDEBAR =====================
 
@@ -267,6 +264,7 @@ else:
 st.markdown("---")
 
 # ===================== QR SCANNER =====================
+
 st.markdown('<h2 id="qr-scanner">📷 QR Scanner</h2>', unsafe_allow_html=True)
 
 SCANNER_PASSWORD = "auxilium2024"
@@ -275,7 +273,7 @@ if not st.session_state.scanner_unlocked:
     st.warning("🔒 Scanner பயன்படுத்த Teacher Password போடுங்கள்!")
     pwd_col1, pwd_col2 = st.columns([3, 1])
     with pwd_col1:
-        pwd_input = st.text_input("Password", type="password", key="pwd_input")
+        pwd_input = st.text_input("Password", type="password", key="pwd_input", placeholder="Teacher password உள்ளிடுங்கள்...")
     with pwd_col2:
         st.write(""); st.write("")
         if st.button("🔓 Unlock", use_container_width=True):
@@ -285,10 +283,11 @@ if not st.session_state.scanner_unlocked:
             else:
                 st.error("❌ தவறான Password!")
 else:
-    # ✅ Every 2 seconds auto refresh
+    # Auto refresh every 2 seconds
     st_autorefresh(interval=2000, key="scanner_refresh")
 
     st.info("📱 QR code scan பண்ணினா 2 seconds-ல் automatically Present mark ஆகும்!")
+
     if st.button("🔒 Lock Scanner"):
         st.session_state.scanner_unlocked = False
         st.session_state.scan_result_name = ""
@@ -302,22 +301,18 @@ else:
         elif s == "new":      st.success(f"✅ {n} — Present Marked! 🎉")
         elif s == "notfound": st.error(f"❌ '{n}' — Student not found!")
 
-    # ✅ JS localStorage மூலம் roll pass பண்றோம்
-    # Every refresh-ல் localStorage check பண்றோம்
-    from streamlit_js_eval import streamlit_js_eval
-    
+    # Read from localStorage every refresh
     scanned_roll = streamlit_js_eval(
         js_expressions="localStorage.getItem('qr_scanned_roll') || ''",
         key="read_roll"
     )
-    
+
     if scanned_roll and str(scanned_roll).strip() and str(scanned_roll).strip() != st.session_state.last_scanned:
         roll_val = str(scanned_roll).strip()
         st.session_state.last_scanned = roll_val
         name_found, status_val = mark_present_by_roll(roll_val)
         st.session_state.scan_result_name = name_found or roll_val
         st.session_state.scan_result_status = status_val
-        # localStorage clear பண்றோம்
         streamlit_js_eval(js_expressions="localStorage.removeItem('qr_scanned_roll')", key="clear_roll")
         st.rerun()
 
@@ -361,8 +356,8 @@ video { width:100%; display:block; border-radius:14px; }
   background:#0d1f3c; color:#f0d060; border:1px solid #c9a227; min-height:48px;
 }
 #status.success { background:#052e16; color:#4ade80; border-color:#166534; }
-#status.error { background:#2d0a0a; color:#f87171; border-color:#7f1d1d; }
-#status.info { background:#0d1f3c; color:#f0d060; border-color:#c9a227; }
+#status.error   { background:#2d0a0a; color:#f87171; border-color:#7f1d1d; }
+#status.info    { background:#0d1f3c; color:#f0d060; border-color:#c9a227; }
 canvas { display:none; }
 #start-btn {
   padding:12px 32px; font-size:15px; font-weight:bold;
@@ -399,7 +394,6 @@ function setStatus(msg,type){status.textContent=msg;status.className=type||"";}
 
 function sendRoll(roll) {
   try {
-    // ✅ parent window localStorage-ல் save பண்றோம்
     window.parent.localStorage.setItem('qr_scanned_roll', roll);
     setStatus("✅ Scanned: " + roll + " — Marking...", "success");
   } catch(e) {
@@ -446,7 +440,9 @@ function tick(){
 
     components.html(scanner_html, height=500, scrolling=False)
 
-#===================== TODAY SUMMARY =====================
+st.markdown("---")
+
+# ===================== TODAY SUMMARY =====================
 
 st.markdown('<h2 id="today-summary">📋 Today Summary</h2>', unsafe_allow_html=True)
 if st.button("🔴 Mark Absent for Remaining Students", use_container_width=True):
