@@ -6,6 +6,7 @@ from datetime import date
 import gspread
 from google.oauth2.service_account import Credentials
 from streamlit_js_eval import streamlit_js_eval
+from googleapiclient.errors import HttpError
 
 st.set_page_config(page_title="Auxilium College - QR Attendance", page_icon="🎓", layout="wide")
 
@@ -43,6 +44,13 @@ p, div, span, label { color: #e0d0a0 !important; }
 SHEET_ID = "1S6dtYyb8fmDGGtwAnXoerQrudv8ZKILxAy67B-37Bu8"
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
+def is_rate_limit_error(e):
+    """Check if the exception is a Google Sheets API rate limit (429) error."""
+    if isinstance(e, HttpError):
+        return e.resp.status == 429
+    msg = str(e).lower()
+    return "429" in msg or "quota" in msg or "rate limit" in msg or "too many requests" in msg
+
 @st.cache_resource(ttl=3600)
 def get_sheets_client():
     creds_dict = st.secrets["gcp_service_account"]
@@ -54,7 +62,7 @@ def get_workbook():
     client = get_sheets_client()
     try:
         return client.open_by_key(SHEET_ID)
-    except:
+    except Exception:
         return client.open("QR_Attendance")
 
 def get_students_sheet():
@@ -98,7 +106,7 @@ def delete_student(sid):
         cell = ws.find(str(sid))
         if cell:
             ws.delete_rows(cell.row)
-    except:
+    except Exception:
         pass
     aws = get_attendance_sheet()
     records = aws.get_all_records()
@@ -217,13 +225,19 @@ with col3: sexam = st.text_input("Exam Number")
 
 if st.button("➕ Add Student & Generate QR", use_container_width=True):
     if sname and sroll:
-        if add_student(sname, sroll, sexam):
-            st.success(f"✅ {sname} added!")
-            st.image(generate_qr(sroll), caption=f"QR - {sname}", width=200)
-        else:
-            st.error("❌ Roll number already exists!")
+        try:
+            if add_student(sname, sroll, sexam):
+                st.success(f"✅ {sname} added!")
+                st.image(generate_qr(sroll), caption=f"QR - {sname}", width=200)
+            else:
+                st.error("❌ Roll number already exists!")
+        except Exception as e:
+            if is_rate_limit_error(e):
+                st.warning("⏳ Google Sheets rate limit hit. Please wait 1 minute and try again.")
+            else:
+                st.error(f"❌ Error adding student: {e}")
     else:
-        st.warning("⚠️ Name மற்றும் Roll Number போடுங்க!")
+        st.warning("⚠️ Please enter both Name and Roll Number!")
 
 st.markdown("---")
 
@@ -248,7 +262,10 @@ try:
     else:
         st.info("No students yet!")
 except Exception as e:
-    st.error(f"⚠️ Google Sheets rate limit — 1 minute பிறகு refresh பண்ணுங்க!")
+    if is_rate_limit_error(e):
+        st.warning("⏳ Google Sheets rate limit hit. Please wait 1 minute and refresh.")
+    else:
+        st.error(f"❌ Failed to load students: {e}")
 
 st.markdown("---")
 
@@ -286,6 +303,8 @@ else:
         elif s == "already":  st.info(f"ℹ️ {n} — Already Present!")
         elif s == "new":      st.success(f"✅ {n} — Present Marked! 🎉")
         elif s == "notfound": st.error(f"❌ '{n}' — Student not found!")
+        elif s == "ratelimit": st.warning(f"⏳ Rate limit hit. Please wait 1 minute and scan again.")
+        elif s == "error":    st.error(f"❌ Error marking attendance. Please try again.")
 
     # Read scanned roll from localStorage
     scanned_roll = streamlit_js_eval(
@@ -300,9 +319,9 @@ else:
             name_found, status_val = mark_present_by_roll(roll_val)
             st.session_state.scan_result_name = name_found or roll_val
             st.session_state.scan_result_status = status_val
-        except:
+        except Exception as e:
             st.session_state.scan_result_name = roll_val
-            st.session_state.scan_result_status = "notfound"
+            st.session_state.scan_result_status = "ratelimit" if is_rate_limit_error(e) else "error"
         streamlit_js_eval(js_expressions="localStorage.removeItem('qr_scanned_roll')", key="clear_roll")
         st.rerun()
 
@@ -313,9 +332,13 @@ else:
     with col_btn:
         if st.button("✅ Mark", use_container_width=True):
             if manual_roll.strip():
-                name_found, status_val = mark_present_by_roll(manual_roll.strip())
-                st.session_state.scan_result_name = name_found or manual_roll.strip()
-                st.session_state.scan_result_status = status_val
+                try:
+                    name_found, status_val = mark_present_by_roll(manual_roll.strip())
+                    st.session_state.scan_result_name = name_found or manual_roll.strip()
+                    st.session_state.scan_result_status = status_val
+                except Exception as e:
+                    st.session_state.scan_result_name = manual_roll.strip()
+                    st.session_state.scan_result_status = "ratelimit" if is_rate_limit_error(e) else "error"
                 st.session_state.last_scanned = manual_roll.strip()
                 st.rerun()
 
@@ -438,7 +461,6 @@ function tick(){
   requestAnimationFrame(tick);
 }
 
-// Poll localStorage every 500ms - if cleared by Streamlit, show ready
 setInterval(()=>{
   if(!cooldown && window.parent.localStorage.getItem('qr_scanned_roll')){
     // still waiting
@@ -460,8 +482,11 @@ if st.button("🔴 Mark Absent for Remaining Students", use_container_width=True
         mark_all_absent()
         st.success("✅ Absent marked!")
         st.rerun()
-    except:
-        st.error("⚠️ Rate limit — 1 minute பிறகு try பண்ணுங்க!")
+    except Exception as e:
+        if is_rate_limit_error(e):
+            st.warning("⏳ Google Sheets rate limit hit. Please wait 1 minute and try again.")
+        else:
+            st.error(f"❌ Error marking absent: {e}")
 
 try:
     summary = get_today_summary()
@@ -490,8 +515,11 @@ try:
                 aa0,aa1,aa2=st.columns([2,2,2])
                 aa0.write(f"{i}. {r[0]}"); aa1.write(r[1]); aa2.write(r[2] if r[2] else "-")
         else: st.info("No absent students!")
-except:
-    st.error("⚠️ Rate limit — 1 minute பிறகு refresh பண்ணுங்க!")
+except Exception as e:
+    if is_rate_limit_error(e):
+        st.warning("⏳ Google Sheets rate limit hit. Please wait 1 minute and refresh.")
+    else:
+        st.error(f"❌ Failed to load today's summary: {e}")
 
 st.markdown("---")
 
@@ -528,5 +556,8 @@ try:
             else: st.info("No absent records!")
     else:
         st.info(f"📅 {filter_date} — No records!")
-except:
-    st.error("⚠️ Rate limit — 1 minute பிறகு refresh பண்ணுங்க!")
+except Exception as e:
+    if is_rate_limit_error(e):
+        st.warning("⏳ Google Sheets rate limit hit. Please wait 1 minute and refresh.")
+    else:
+        st.error(f"❌ Failed to load report: {e}")
