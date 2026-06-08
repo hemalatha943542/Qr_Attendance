@@ -69,7 +69,7 @@ def get_attendance_sheet():
     ws = wb.add_worksheet(title="Attendance", rows="10000", cols="4")
     ws.append_row(["Student ID", "Name", "Date", "Status"])
     return ws
-
+@st.cache_data(ttl=60)
 def get_students():
     ws = get_students_sheet()
     return [(r["ID"], r["Name"], r["Roll Number"], r["Exam Number"]) for r in ws.get_all_records()]
@@ -122,7 +122,7 @@ def mark_all_absent():
     for s in ws.get_all_records():
         if str(s["ID"]) not in marked_ids:
             aws.append_row([s["ID"], s["Name"], today, "Absent"])
-
+@st.cache_data(ttl=60)
 def get_today_summary():
     aws = get_attendance_sheet()
     ws = get_students_sheet()
@@ -134,7 +134,7 @@ def get_today_summary():
             s = students.get(str(r["Student ID"]),{})
             result.append((r["Name"], s.get("Roll Number",""), s.get("Exam Number",""), r["Status"]))
     return result
-
+@st.cache_data(ttl=60)
 def get_report(filter_date):
     aws = get_attendance_sheet()
     ws = get_students_sheet()
