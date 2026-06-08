@@ -5,8 +5,7 @@ import io
 from datetime import date
 import gspread
 from google.oauth2.service_account import Credentials
-from streamlit_js_eval import streamlit_js_eval
-from googleapiclient.errors import HttpError
+import time
 
 st.set_page_config(page_title="Auxilium College - QR Attendance", page_icon="🎓", layout="wide")
 
@@ -17,12 +16,7 @@ st.markdown("""
 h1 { color: #c9a227 !important; }
 h2 { color: #e8c547 !important; border-bottom: 2px solid #c9a227; padding-bottom: 8px; }
 h3 { color: #c9a227 !important; }
-.menu-btn {
-    display: block; width: 100%; padding: 10px 15px; margin: 5px 0;
-    background: linear-gradient(90deg, #0d2a5e, #0a1f4a);
-    color: #f0d060 !important; text-decoration: none !important;
-    border-radius: 8px; font-size: 15px; cursor: pointer; border: 1px solid #c9a227;
-}
+.menu-btn { display: block; width: 100%; padding: 10px 15px; margin: 5px 0; background: linear-gradient(90deg, #0d2a5e, #0a1f4a); color: #f0d060 !important; text-decoration: none !important; border-radius: 8px; font-size: 15px; cursor: pointer; border: 1px solid #c9a227; }
 .menu-btn:hover { background: linear-gradient(90deg, #c9a227, #e8c547) !important; color: #0a1628 !important; }
 .stButton > button { background: linear-gradient(90deg, #1a3a6b, #0d2a5e) !important; color: #f0d060 !important; border: 1px solid #c9a227 !important; border-radius: 8px !important; font-weight: bold !important; }
 .stButton > button:hover { background: linear-gradient(90deg, #c9a227, #e8c547) !important; color: #0a1628 !important; }
@@ -39,17 +33,10 @@ p, div, span, label { color: #e0d0a0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ===================== GOOGLE SHEETS CONNECTION =====================
+# ===================== GOOGLE SHEETS =====================
 
 SHEET_ID = "1S6dtYyb8fmDGGtwAnXoerQrudv8ZKILxAy67B-37Bu8"
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-
-def is_rate_limit_error(e):
-    """Check if the exception is a Google Sheets API rate limit (429) error."""
-    if isinstance(e, HttpError):
-        return e.resp.status == 429
-    msg = str(e).lower()
-    return "429" in msg or "quota" in msg or "rate limit" in msg or "too many requests" in msg
 
 @st.cache_resource(ttl=3600)
 def get_sheets_client():
@@ -62,7 +49,7 @@ def get_workbook():
     client = get_sheets_client()
     try:
         return client.open_by_key(SHEET_ID)
-    except Exception:
+    except:
         return client.open("QR_Attendance")
 
 def get_students_sheet():
@@ -83,12 +70,9 @@ def get_attendance_sheet():
     ws.append_row(["Student ID", "Name", "Date", "Status"])
     return ws
 
-# ===================== DATA FUNCTIONS =====================
-
 def get_students():
     ws = get_students_sheet()
-    rows = ws.get_all_records()
-    return [(r["ID"], r["Name"], r["Roll Number"], r["Exam Number"]) for r in rows]
+    return [(r["ID"], r["Name"], r["Roll Number"], r["Exam Number"]) for r in ws.get_all_records()]
 
 def add_student(name, roll, exam):
     ws = get_students_sheet()
@@ -96,32 +80,23 @@ def add_student(name, roll, exam):
     for r in rows:
         if str(r["Roll Number"]) == str(roll):
             return False
-    new_id = len(rows) + 1
-    ws.append_row([new_id, name, roll, exam])
+    ws.append_row([len(rows)+1, name, roll, exam])
     return True
 
 def delete_student(sid):
     ws = get_students_sheet()
     try:
         cell = ws.find(str(sid))
-        if cell:
-            ws.delete_rows(cell.row)
-    except Exception:
-        pass
+        if cell: ws.delete_rows(cell.row)
+    except: pass
     aws = get_attendance_sheet()
-    records = aws.get_all_records()
-    rows_to_delete = []
-    for i, r in enumerate(records, 2):
-        if str(r["Student ID"]) == str(sid):
-            rows_to_delete.append(i)
-    for row in reversed(rows_to_delete):
-        aws.delete_rows(row)
+    rows_to_delete = [i for i,r in enumerate(aws.get_all_records(),2) if str(r["Student ID"])==str(sid)]
+    for row in reversed(rows_to_delete): aws.delete_rows(row)
 
 def mark_present_by_roll(roll):
     ws = get_students_sheet()
-    rows = ws.get_all_records()
     student = None
-    for r in rows:
+    for r in ws.get_all_records():
         if str(r["Roll Number"]).strip() == str(roll).strip():
             student = r
             break
@@ -129,11 +104,10 @@ def mark_present_by_roll(roll):
         return None, "notfound"
     today = str(date.today())
     aws = get_attendance_sheet()
-    att_rows = aws.get_all_records()
-    for i, r in enumerate(att_rows, 2):
-        if str(r["Student ID"]) == str(student["ID"]) and r["Date"] == today:
-            if r["Status"] == "Absent":
-                aws.update_cell(i, 4, "Present")
+    for i,r in enumerate(aws.get_all_records(),2):
+        if str(r["Student ID"])==str(student["ID"]) and r["Date"]==today:
+            if r["Status"]=="Absent":
+                aws.update_cell(i,4,"Present")
                 return student["Name"], "updated"
             else:
                 return student["Name"], "already"
@@ -142,12 +116,10 @@ def mark_present_by_roll(roll):
 
 def mark_all_absent():
     ws = get_students_sheet()
-    students = ws.get_all_records()
     today = str(date.today())
     aws = get_attendance_sheet()
-    att_rows = aws.get_all_records()
-    marked_ids = {str(r["Student ID"]) for r in att_rows if r["Date"] == today}
-    for s in students:
+    marked_ids = {str(r["Student ID"]) for r in aws.get_all_records() if r["Date"]==today}
+    for s in ws.get_all_records():
         if str(s["ID"]) not in marked_ids:
             aws.append_row([s["ID"], s["Name"], today, "Absent"])
 
@@ -158,8 +130,8 @@ def get_today_summary():
     students = {str(s["ID"]): s for s in ws.get_all_records()}
     result = []
     for r in aws.get_all_records():
-        if r["Date"] == today:
-            s = students.get(str(r["Student ID"]), {})
+        if r["Date"]==today:
+            s = students.get(str(r["Student ID"]),{})
             result.append((r["Name"], s.get("Roll Number",""), s.get("Exam Number",""), r["Status"]))
     return result
 
@@ -169,8 +141,8 @@ def get_report(filter_date):
     students = {str(s["ID"]): s for s in ws.get_all_records()}
     result = []
     for r in aws.get_all_records():
-        if r["Date"] == str(filter_date):
-            s = students.get(str(r["Student ID"]), {})
+        if r["Date"]==str(filter_date):
+            s = students.get(str(r["Student ID"]),{})
             result.append((r["Name"], s.get("Roll Number",""), s.get("Exam Number",""), r["Date"], r["Status"]))
     return result
 
@@ -188,6 +160,23 @@ for key in ['last_scanned','scan_result_name','scan_result_status']:
         st.session_state[key] = ""
 if 'scanner_unlocked' not in st.session_state:
     st.session_state.scanner_unlocked = False
+if 'pending_roll' not in st.session_state:
+    st.session_state.pending_roll = ""
+
+# ===================== PROCESS PENDING ROLL =====================
+# on_change callback மூலம் வந்த roll-ஐ இங்க process பண்றோம்
+
+if st.session_state.pending_roll and st.session_state.pending_roll != st.session_state.last_scanned:
+    roll_to_mark = st.session_state.pending_roll
+    st.session_state.pending_roll = ""
+    st.session_state.last_scanned = roll_to_mark
+    try:
+        name_found, status_val = mark_present_by_roll(roll_to_mark)
+        st.session_state.scan_result_name = name_found or roll_to_mark
+        st.session_state.scan_result_status = status_val
+    except:
+        st.session_state.scan_result_name = roll_to_mark
+        st.session_state.scan_result_status = "notfound"
 
 # ===================== SIDEBAR =====================
 
@@ -225,19 +214,13 @@ with col3: sexam = st.text_input("Exam Number")
 
 if st.button("➕ Add Student & Generate QR", use_container_width=True):
     if sname and sroll:
-        try:
-            if add_student(sname, sroll, sexam):
-                st.success(f"✅ {sname} added!")
-                st.image(generate_qr(sroll), caption=f"QR - {sname}", width=200)
-            else:
-                st.error("❌ Roll number already exists!")
-        except Exception as e:
-            if is_rate_limit_error(e):
-                st.warning("⏳ Google Sheets rate limit hit. Please wait 1 minute and try again.")
-            else:
-                st.error(f"❌ Error adding student: {e}")
+        if add_student(sname, sroll, sexam):
+            st.success(f"✅ {sname} added!")
+            st.image(generate_qr(sroll), caption=f"QR - {sname}", width=200)
+        else:
+            st.error("❌ Roll number already exists!")
     else:
-        st.warning("⚠️ Please enter both Name and Roll Number!")
+        st.warning("⚠️ Name மற்றும் Roll Number போடுங்க!")
 
 st.markdown("---")
 
@@ -251,21 +234,17 @@ try:
         h0.markdown("**S.No**"); h1.markdown("**Name**"); h2.markdown("**Roll**")
         h3.markdown("**Exam No**"); h4.markdown("**QR Code**"); h5.markdown("**Delete**")
         st.markdown("---")
-        for i, s in enumerate(students, 1):
+        for i,s in enumerate(students,1):
             c0,c1,c2,c3,c4,c5 = st.columns([1,2,2,2,2,1])
-            c0.write(i); c1.write(s[1]); c2.write(s[2])
-            c3.write(s[3] if s[3] else "-")
+            c0.write(i); c1.write(s[1]); c2.write(s[2]); c3.write(s[3] if s[3] else "-")
             with c4: st.image(generate_qr(s[2]), width=80)
             with c5:
                 if st.button("🗑️", key=f"d{s[0]}"):
                     delete_student(s[0]); st.rerun()
     else:
         st.info("No students yet!")
-except Exception as e:
-    if is_rate_limit_error(e):
-        st.warning("⏳ Google Sheets rate limit hit. Please wait 1 minute and refresh.")
-    else:
-        st.error(f"❌ Failed to load students: {e}")
+except:
+    st.warning("⚠️ 1 minute பிறகு refresh பண்ணுங்க (API limit)")
 
 st.markdown("---")
 
@@ -290,7 +269,6 @@ if not st.session_state.scanner_unlocked:
                 st.error("❌ தவறான Password!")
 else:
     st.info("📱 QR code scan பண்ணினா automatically Present mark ஆகும்!")
-
     if st.button("🔒 Lock Scanner"):
         st.session_state.scanner_unlocked = False
         st.session_state.scan_result_name = ""
@@ -303,44 +281,20 @@ else:
         elif s == "already":  st.info(f"ℹ️ {n} — Already Present!")
         elif s == "new":      st.success(f"✅ {n} — Present Marked! 🎉")
         elif s == "notfound": st.error(f"❌ '{n}' — Student not found!")
-        elif s == "ratelimit": st.warning(f"⏳ Rate limit hit. Please wait 1 minute and scan again.")
-        elif s == "error":    st.error(f"❌ Error marking attendance. Please try again.")
 
-    # Read scanned roll from localStorage
-    scanned_roll = streamlit_js_eval(
-        js_expressions="localStorage.getItem('qr_scanned_roll') || ''",
-        key="read_roll"
+    # ✅ on_change callback — value மாறும்போது rerun trigger ஆகும்
+    def on_scan():
+        val = st.session_state.get("hidden_scan_input", "").strip()
+        if val and val != st.session_state.last_scanned:
+            st.session_state.pending_roll = val
+
+    st.text_input(
+        "hidden",
+        key="hidden_scan_input",
+        on_change=on_scan,
+        label_visibility="collapsed",
+        placeholder="QR scan ஆனா auto-fill ஆகும்..."
     )
-
-    if scanned_roll and str(scanned_roll).strip() and str(scanned_roll).strip() != st.session_state.last_scanned:
-        roll_val = str(scanned_roll).strip()
-        st.session_state.last_scanned = roll_val
-        try:
-            name_found, status_val = mark_present_by_roll(roll_val)
-            st.session_state.scan_result_name = name_found or roll_val
-            st.session_state.scan_result_status = status_val
-        except Exception as e:
-            st.session_state.scan_result_name = roll_val
-            st.session_state.scan_result_status = "ratelimit" if is_rate_limit_error(e) else "error"
-        streamlit_js_eval(js_expressions="localStorage.removeItem('qr_scanned_roll')", key="clear_roll")
-        st.rerun()
-
-    # Manual submit backup
-    col_input, col_btn = st.columns([4, 1])
-    with col_input:
-        manual_roll = st.text_input("Roll Number", key="manual_roll", label_visibility="collapsed", placeholder="Manual-ஆ roll number போடலாம்...")
-    with col_btn:
-        if st.button("✅ Mark", use_container_width=True):
-            if manual_roll.strip():
-                try:
-                    name_found, status_val = mark_present_by_roll(manual_roll.strip())
-                    st.session_state.scan_result_name = name_found or manual_roll.strip()
-                    st.session_state.scan_result_status = status_val
-                except Exception as e:
-                    st.session_state.scan_result_name = manual_roll.strip()
-                    st.session_state.scan_result_status = "ratelimit" if is_rate_limit_error(e) else "error"
-                st.session_state.last_scanned = manual_roll.strip()
-                st.rerun()
 
     scanner_html = """<!DOCTYPE html>
 <html>
@@ -418,13 +372,25 @@ let scanning=false, cooldown=false;
 
 function setStatus(msg,type){status.textContent=msg;status.className=type||"";}
 
-function sendRoll(roll) {
+function fillInput(roll) {
   try {
-    window.parent.localStorage.setItem('qr_scanned_roll', roll);
-    setStatus("✅ Scanned: " + roll + " — Processing...", "success");
-  } catch(e) {
-    setStatus("❌ Error: " + e.message, "error");
-  }
+    const doc = window.parent.document;
+    const inputs = doc.querySelectorAll('input[type="text"]');
+    for (let inp of inputs) {
+      if (inp.placeholder && inp.placeholder.includes('auto-fill')) {
+        // React-style native setter
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
+        nativeInputValueSetter.call(inp, roll);
+        // Fire both input and change events
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+        // Also try blur to trigger on_change
+        inp.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+        return true;
+      }
+    }
+  } catch(e) { console.error(e); }
+  return false;
 }
 
 function startCamera(){
@@ -454,23 +420,18 @@ function tick(){
     const code=jsQR(d.data,d.width,d.height,{inversionAttempts:"dontInvert"});
     if(code&&code.data&&!cooldown){
       cooldown=true;
-      sendRoll(code.data);
+      setStatus("✅ Scanned: "+code.data+" — Marking...","success");
+      fillInput(code.data);
       setTimeout(()=>{ cooldown=false; setStatus("✅ Ready! Next QR காட்டுங்க...","info"); },3000);
     }
   }
   requestAnimationFrame(tick);
 }
-
-setInterval(()=>{
-  if(!cooldown && window.parent.localStorage.getItem('qr_scanned_roll')){
-    // still waiting
-  }
-}, 500);
 </script>
 </body>
 </html>"""
 
-    components.html(scanner_html, height=520, scrolling=False)
+    components.html(scanner_html, height=500, scrolling=False)
 
 st.markdown("---")
 
@@ -482,17 +443,13 @@ if st.button("🔴 Mark Absent for Remaining Students", use_container_width=True
         mark_all_absent()
         st.success("✅ Absent marked!")
         st.rerun()
-    except Exception as e:
-        if is_rate_limit_error(e):
-            st.warning("⏳ Google Sheets rate limit hit. Please wait 1 minute and try again.")
-        else:
-            st.error(f"❌ Error marking absent: {e}")
+    except:
+        st.error("⚠️ Rate limit — 1 minute பிறகு try பண்ணுங்க!")
 
 try:
     summary = get_today_summary()
     present_list = [r for r in summary if r[3]=='Present']
     absent_list  = [r for r in summary if r[3]=='Absent']
-
     col_p, col_a = st.columns(2)
     with col_p:
         st.markdown(f"### ✅ Present ({len(present_list)})")
@@ -504,7 +461,6 @@ try:
                 pp0,pp1,pp2=st.columns([2,2,2])
                 pp0.write(f"{i}. {r[0]}"); pp1.write(r[1]); pp2.write(r[2] if r[2] else "-")
         else: st.info("No present students yet!")
-
     with col_a:
         st.markdown(f"### ❌ Absent ({len(absent_list)})")
         if absent_list:
@@ -515,11 +471,8 @@ try:
                 aa0,aa1,aa2=st.columns([2,2,2])
                 aa0.write(f"{i}. {r[0]}"); aa1.write(r[1]); aa2.write(r[2] if r[2] else "-")
         else: st.info("No absent students!")
-except Exception as e:
-    if is_rate_limit_error(e):
-        st.warning("⏳ Google Sheets rate limit hit. Please wait 1 minute and refresh.")
-    else:
-        st.error(f"❌ Failed to load today's summary: {e}")
+except:
+    st.warning("⚠️ 1 minute பிறகு refresh பண்ணுங்க")
 
 st.markdown("---")
 
@@ -556,8 +509,5 @@ try:
             else: st.info("No absent records!")
     else:
         st.info(f"📅 {filter_date} — No records!")
-except Exception as e:
-    if is_rate_limit_error(e):
-        st.warning("⏳ Google Sheets rate limit hit. Please wait 1 minute and refresh.")
-    else:
-        st.error(f"❌ Failed to load report: {e}")
+except:
+    st.warning("⚠️ 1 minute பிறகு refresh பண்ணுங்க")
