@@ -334,7 +334,7 @@ function sendRoll(roll) {
     // ✅ Parent page URL மாத்தி reload — இதுவே most reliable
     const url = new URL(window.parent.location.href);
     url.searchParams.set('roll', roll);
-    window.location.href = url.toString();
+    window.top.location.href = url.toString();
   } catch(e) {
     setStatus("❌ " + e.message, "error");
   }
