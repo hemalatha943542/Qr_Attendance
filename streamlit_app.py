@@ -5,7 +5,6 @@ import io
 from datetime import date
 import gspread
 from google.oauth2.service_account import Credentials
-import time
 
 st.set_page_config(page_title="Auxilium College - QR Attendance", page_icon="🎓", layout="wide")
 
@@ -17,9 +16,7 @@ h1 { color: #c9a227 !important; }
 h2 { color: #e8c547 !important; border-bottom: 2px solid #c9a227; padding-bottom: 8px; }
 h3 { color: #c9a227 !important; }
 .menu-btn { display: block; width: 100%; padding: 10px 15px; margin: 5px 0; background: linear-gradient(90deg, #0d2a5e, #0a1f4a); color: #f0d060 !important; text-decoration: none !important; border-radius: 8px; font-size: 15px; cursor: pointer; border: 1px solid #c9a227; }
-.menu-btn:hover { background: linear-gradient(90deg, #c9a227, #e8c547) !important; color: #0a1628 !important; }
 .stButton > button { background: linear-gradient(90deg, #1a3a6b, #0d2a5e) !important; color: #f0d060 !important; border: 1px solid #c9a227 !important; border-radius: 8px !important; font-weight: bold !important; }
-.stButton > button:hover { background: linear-gradient(90deg, #c9a227, #e8c547) !important; color: #0a1628 !important; }
 .stTextInput > div > div > input { background: #0d1f3c !important; color: #f0d060 !important; border: 1px solid #c9a227 !important; border-radius: 8px !important; }
 .stTextInput > label { color: #c9a227 !important; font-weight: bold !important; }
 [data-testid="stMetric"] { background: linear-gradient(135deg, #0d1f3c, #1a3a6b) !important; border: 1px solid #c9a227 !important; border-radius: 10px !important; padding: 10px !important; }
@@ -69,6 +66,7 @@ def get_attendance_sheet():
     ws = wb.add_worksheet(title="Attendance", rows="10000", cols="4")
     ws.append_row(["Student ID", "Name", "Date", "Status"])
     return ws
+
 @st.cache_data(ttl=60)
 def get_students():
     ws = get_students_sheet()
@@ -81,6 +79,7 @@ def add_student(name, roll, exam):
         if str(r["Roll Number"]) == str(roll):
             return False
     ws.append_row([len(rows)+1, name, roll, exam])
+    get_students.clear()
     return True
 
 def delete_student(sid):
@@ -92,6 +91,7 @@ def delete_student(sid):
     aws = get_attendance_sheet()
     rows_to_delete = [i for i,r in enumerate(aws.get_all_records(),2) if str(r["Student ID"])==str(sid)]
     for row in reversed(rows_to_delete): aws.delete_rows(row)
+    get_students.clear()
 
 def mark_present_by_roll(roll):
     ws = get_students_sheet()
@@ -122,7 +122,8 @@ def mark_all_absent():
     for s in ws.get_all_records():
         if str(s["ID"]) not in marked_ids:
             aws.append_row([s["ID"], s["Name"], today, "Absent"])
-@st.cache_data(ttl=60)
+
+@st.cache_data(ttl=30)
 def get_today_summary():
     aws = get_attendance_sheet()
     ws = get_students_sheet()
@@ -134,6 +135,7 @@ def get_today_summary():
             s = students.get(str(r["Student ID"]),{})
             result.append((r["Name"], s.get("Roll Number",""), s.get("Exam Number",""), r["Status"]))
     return result
+
 @st.cache_data(ttl=60)
 def get_report(filter_date):
     aws = get_attendance_sheet()
@@ -154,32 +156,28 @@ def generate_qr(roll):
     return buf
 
 # ===================== SESSION STATE =====================
-
 for key in ['last_scanned','scan_result_name','scan_result_status']:
     if key not in st.session_state:
         st.session_state[key] = ""
 if 'scanner_unlocked' not in st.session_state:
     st.session_state.scanner_unlocked = False
-if 'pending_roll' not in st.session_state:
-    st.session_state.pending_roll = ""
 
-# ===================== PROCESS PENDING ROLL =====================
-# on_change callback மூலம் வந்த roll-ஐ இங்க process பண்றோம்
-
-if st.session_state.pending_roll and st.session_state.pending_roll != st.session_state.last_scanned:
-    roll_to_mark = st.session_state.pending_roll
-    st.session_state.pending_roll = ""
-    st.session_state.last_scanned = roll_to_mark
+# ===================== URL PARAM — QR scan result =====================
+qp = st.query_params
+scanned_from_url = qp.get("roll", "")
+if scanned_from_url and scanned_from_url != st.session_state.last_scanned:
+    st.session_state.last_scanned = scanned_from_url
     try:
-        name_found, status_val = mark_present_by_roll(roll_to_mark)
-        st.session_state.scan_result_name = name_found or roll_to_mark
+        name_found, status_val = mark_present_by_roll(scanned_from_url)
+        st.session_state.scan_result_name = name_found or scanned_from_url
         st.session_state.scan_result_status = status_val
+        get_today_summary.clear()
     except:
-        st.session_state.scan_result_name = roll_to_mark
+        st.session_state.scan_result_name = scanned_from_url
         st.session_state.scan_result_status = "notfound"
+    st.query_params.clear()
 
 # ===================== SIDEBAR =====================
-
 with st.sidebar:
     try: st.image("static/auxlogo.jpg", width=120)
     except: st.markdown('<p style="text-align:center;font-size:40px;">🎓</p>', unsafe_allow_html=True)
@@ -205,7 +203,6 @@ st.markdown("""
 st.markdown("---")
 
 # ===================== ADD STUDENT =====================
-
 st.markdown('<h2 id="add-student">➕ Add Student</h2>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns(3)
 with col1: sname = st.text_input("Student Name")
@@ -225,7 +222,6 @@ if st.button("➕ Add Student & Generate QR", use_container_width=True):
 st.markdown("---")
 
 # ===================== STUDENTS LIST =====================
-
 st.markdown('<h2 id="students-list">👥 Students List</h2>', unsafe_allow_html=True)
 try:
     students = get_students()
@@ -244,12 +240,11 @@ try:
     else:
         st.info("No students yet!")
 except:
-    st.warning("⚠️ 1 minute பிறகு refresh பண்ணுங்க (API limit)")
+    st.warning("⚠️ 1 minute பிறகு refresh பண்ணுங்க")
 
 st.markdown("---")
 
 # ===================== QR SCANNER =====================
-
 st.markdown('<h2 id="qr-scanner">📷 QR Scanner</h2>', unsafe_allow_html=True)
 
 SCANNER_PASSWORD = "auxilium2024"
@@ -282,20 +277,6 @@ else:
         elif s == "new":      st.success(f"✅ {n} — Present Marked! 🎉")
         elif s == "notfound": st.error(f"❌ '{n}' — Student not found!")
 
-    # ✅ on_change callback — value மாறும்போது rerun trigger ஆகும்
-    def on_scan():
-        val = st.session_state.get("hidden_scan_input", "").strip()
-        if val and val != st.session_state.last_scanned:
-            st.session_state.pending_roll = val
-
-    st.text_input(
-        "hidden",
-        key="hidden_scan_input",
-        on_change=on_scan,
-        label_visibility="collapsed",
-        placeholder="QR scan ஆனா auto-fill ஆகும்..."
-    )
-
     scanner_html = """<!DOCTYPE html>
 <html>
 <head>
@@ -304,46 +285,22 @@ else:
 * { margin:0; padding:0; box-sizing:border-box; }
 body { background:#0a1628; font-family:Arial,sans-serif; }
 #container { display:flex; flex-direction:column; align-items:center; padding:16px; gap:12px; }
-#video-wrap {
-  position:relative; width:100%; max-width:380px;
-  border-radius:16px; overflow:hidden;
-  border:2px solid #c9a227;
-  box-shadow:0 0 20px rgba(201,162,39,0.5);
-}
+#video-wrap { position:relative; width:100%; max-width:380px; border-radius:16px; overflow:hidden; border:2px solid #c9a227; box-shadow:0 0 20px rgba(201,162,39,0.5); }
 video { width:100%; display:block; border-radius:14px; }
-#overlay {
-  position:absolute; top:50%; left:50%;
-  transform:translate(-50%,-50%);
-  width:180px; height:180px;
-  border:3px solid #c9a227; border-radius:12px;
-  box-shadow:0 0 0 9999px rgba(0,0,0,0.35);
-  pointer-events:none;
-}
+#overlay { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:180px; height:180px; border:3px solid #c9a227; border-radius:12px; box-shadow:0 0 0 9999px rgba(0,0,0,0.35); pointer-events:none; }
 .corner { position:absolute; width:22px; height:22px; border-color:#c9a227; border-style:solid; }
 .tl { top:-2px;left:-2px; border-width:3px 0 0 3px; border-radius:4px 0 0 0; }
 .tr { top:-2px;right:-2px; border-width:3px 3px 0 0; border-radius:0 4px 0 0; }
 .bl { bottom:-2px;left:-2px; border-width:0 0 3px 3px; border-radius:0 0 0 4px; }
 .br { bottom:-2px;right:-2px; border-width:0 3px 3px 0; border-radius:0 0 4px 0; }
-#scan-line {
-  position:absolute; left:4px; right:4px; height:2px;
-  background:linear-gradient(90deg,transparent,#e8c547,transparent);
-  animation:scan 2s linear infinite; top:10%;
-}
+#scan-line { position:absolute; left:4px; right:4px; height:2px; background:linear-gradient(90deg,transparent,#e8c547,transparent); animation:scan 2s linear infinite; top:10%; }
 @keyframes scan { 0%{top:10%} 50%{top:85%} 100%{top:10%} }
-#status {
-  width:100%; max-width:380px; padding:12px 16px;
-  border-radius:10px; font-size:15px; text-align:center; font-weight:bold;
-  background:#0d1f3c; color:#f0d060; border:1px solid #c9a227; min-height:48px;
-}
+#status { width:100%; max-width:380px; padding:12px 16px; border-radius:10px; font-size:15px; text-align:center; font-weight:bold; background:#0d1f3c; color:#f0d060; border:1px solid #c9a227; min-height:48px; }
 #status.success { background:#052e16; color:#4ade80; border-color:#166534; }
-#status.error   { background:#2d0a0a; color:#f87171; border-color:#7f1d1d; }
-#status.info    { background:#0d1f3c; color:#f0d060; border-color:#c9a227; }
+#status.error { background:#2d0a0a; color:#f87171; border-color:#7f1d1d; }
+#status.info { background:#0d1f3c; color:#f0d060; border-color:#c9a227; }
 canvas { display:none; }
-#start-btn {
-  padding:12px 32px; font-size:15px; font-weight:bold;
-  background:linear-gradient(90deg,#c9a227,#e8c547); color:#0a1628; border:none;
-  border-radius:10px; cursor:pointer; width:100%; max-width:380px;
-}
+#start-btn { padding:12px 32px; font-size:15px; font-weight:bold; background:linear-gradient(90deg,#c9a227,#e8c547); color:#0a1628; border:none; border-radius:10px; cursor:pointer; width:100%; max-width:380px; }
 #start-btn:disabled { background:#444; color:#999; cursor:not-allowed; }
 </style>
 </head>
@@ -372,32 +329,20 @@ let scanning=false, cooldown=false;
 
 function setStatus(msg,type){status.textContent=msg;status.className=type||"";}
 
-function fillInput(roll) {
+function sendRoll(roll) {
   try {
-    const doc = window.parent.document;
-    const inputs = doc.querySelectorAll('input[type="text"]');
-    for (let inp of inputs) {
-      if (inp.placeholder && inp.placeholder.includes('auto-fill')) {
-        // React-style native setter
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
-        nativeInputValueSetter.call(inp, roll);
-        // Fire both input and change events
-        inp.dispatchEvent(new Event('input', { bubbles: true }));
-        inp.dispatchEvent(new Event('change', { bubbles: true }));
-        // Also try blur to trigger on_change
-        inp.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
-        return true;
-      }
-    }
-  } catch(e) { console.error(e); }
-  return false;
+    // ✅ Parent page URL மாத்தி reload — இதுவே most reliable
+    const url = new URL(window.parent.location.href);
+    url.searchParams.set('roll', roll);
+    window.parent.location.href = url.toString();
+  } catch(e) {
+    setStatus("❌ " + e.message, "error");
+  }
 }
 
 function startCamera(){
   btn.disabled=true; btn.textContent="⏳ Starting...";
-  navigator.mediaDevices.getUserMedia({
-    video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}}
-  })
+  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}}})
   .then(stream=>{
     video.srcObject=stream; video.play();
     scanning=true;
@@ -421,8 +366,7 @@ function tick(){
     if(code&&code.data&&!cooldown){
       cooldown=true;
       setStatus("✅ Scanned: "+code.data+" — Marking...","success");
-      fillInput(code.data);
-      setTimeout(()=>{ cooldown=false; setStatus("✅ Ready! Next QR காட்டுங்க...","info"); },3000);
+      sendRoll(code.data);
     }
   }
   requestAnimationFrame(tick);
@@ -436,11 +380,11 @@ function tick(){
 st.markdown("---")
 
 # ===================== TODAY SUMMARY =====================
-
 st.markdown('<h2 id="today-summary">📋 Today Summary</h2>', unsafe_allow_html=True)
 if st.button("🔴 Mark Absent for Remaining Students", use_container_width=True):
     try:
         mark_all_absent()
+        get_today_summary.clear()
         st.success("✅ Absent marked!")
         st.rerun()
     except:
@@ -477,10 +421,11 @@ except:
 st.markdown("---")
 
 # ===================== ATTENDANCE REPORT =====================
-
 st.markdown('<h2 id="attendance-report">📊 Attendance Report</h2>', unsafe_allow_html=True)
 filter_date = st.date_input("📅 Date Select", value=date.today(), key="report_date")
-if st.button("🔄 Refresh Report", use_container_width=True): st.rerun()
+if st.button("🔄 Refresh Report", use_container_width=True):
+    get_report.clear()
+    st.rerun()
 
 try:
     records = get_report(filter_date)
