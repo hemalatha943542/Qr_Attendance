@@ -1,6 +1,9 @@
 streamlit
-Pillow
-qrcode[pil]
 pandas
+qrcode
+pillow
 gspread
 google-auth
+google-auth-oauthlib
+google-api-python-client
+streamlit-js-eval
